@@ -9,6 +9,7 @@ using VRage.Game;
 using VRage.Game.Components;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI;
+using VRage.Input;
 using VRage.ModAPI;
 using VRage.ObjectBuilders;
 using VRageMath;
@@ -401,15 +402,16 @@ namespace GrappleHook
 
         /// <summary>
         /// Input while the local player controls this block directly - a turret taken over
-        /// with Control - read through the game's controls, so it follows the player's key
-        /// bindings, and ignored while a menu or the chat has the cursor. With the rope attached:
+        /// with Control - ignored while a menu or the chat has the cursor. With the rope attached:
         ///   right click (secondary action)   detach. Vanilla turrets give it no use; zoom is
         ///                                    the scroll wheel.
-        ///   W held (forward)                 pay rope out at the full loosen speed
-        ///   S held (backward)                reel rope in at the full tighten speed
-        /// Releasing W or S, or leaving the turret while holding one, stops the winch; a speed
-        /// set on the terminal slider is left alone until W or S is pressed. Taken over from a
-        /// cockpit, the game also passes W and S on to that ship's thrusters.
+        ///   Page Up held                     reel rope in at the full tighten speed
+        ///   Page Down held                   pay rope out at the full loosen speed
+        /// Releasing the key, or leaving the turret while holding one, stops the winch; a speed
+        /// set on the terminal slider is left alone until one is pressed. The winch keys are
+        /// Page Up and Page Down rather than movement controls: a turret taken over from a
+        /// cockpit still passes the movement controls to that ship's thrusters, and the game
+        /// binds nothing to these two.
         /// </summary>
         private void UpdateDirectControlInput()
         {
@@ -429,8 +431,8 @@ namespace GrappleHook
                     RequestDetach();
                 }
 
-                bool loosen = MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.FORWARD);
-                bool tighten = MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.BACKWARD);
+                bool tighten = MyAPIGateway.Input.IsKeyPress(MyKeys.PageUp);
+                bool loosen = MyAPIGateway.Input.IsKeyPress(MyKeys.PageDown);
                 if (loosen != tighten)
                 {
                     winch = loosen ? -Config.Winch.LoosenSpeed : Config.Winch.TightenSpeed;
@@ -449,7 +451,7 @@ namespace GrappleHook
             }
         }
 
-        /// <summary>The winch speed was last set by W or S, so letting go of them stops it.</summary>
+        /// <summary>The winch speed was last set by Page Up or Page Down, so letting go of them stops it.</summary>
         private bool winchFromKeys;
 
         internal void VerifyAndRequestShoot(bool terminalShoot = false)

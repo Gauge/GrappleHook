@@ -42,11 +42,12 @@ launches the hook when the gun starts shooting, so setting `Shoot` from a script
 The game never hands the right click to a missile launcher, so the mod reads that input itself,
 as it does for a turret under direct control.
 
-While you control a turret directly (Control in its terminal), right click lets go, holding W
-pays rope out at the full loosen speed and holding S reels it in at the full tighten speed;
-letting go of the key stops the winch. These follow the game's key bindings (secondary action,
-forward, backward). Taken over from a cockpit, the game also passes W and S to that ship's
-thrusters, which a mod cannot stop.
+While you control a turret directly (Control in its terminal), right click lets go, holding
+Page Up reels the rope in at the full tighten speed and holding Page Down pays it out at the full
+loosen speed; letting go of the key stops the winch. Right click follows the game's binding for
+the secondary action. The winch keys are Page Up and Page Down rather than W and S because a turret
+taken over from a cockpit still passes the movement keys to that ship's thrusters, which a mod
+cannot stop; the game binds nothing to Page Up and Page Down.
 
 The grapple's own terminal actions (Detach, Tighten, Loosen, Reset) have toolbar icons in the
 style of the game's, drawn by [tools/model/action_icons.py](tools/model/action_icons.py).
