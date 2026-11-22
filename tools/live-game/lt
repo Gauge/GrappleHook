@@ -124,6 +124,16 @@ up() {
   [ -d "$world" ] || world >/dev/null || return 1
   local out; [ "$LT_MOD_FOLDER" != GrappleHook ] || out=$(bash "$live" deploy 2>&1) || { echo "$out" | grep -E "error" | sed -E 's| \[/.*||' | sort -u | head -10; return 1; }
   deploy_probe || return 1
+  # LT_DEBUG=1: the deployed copy logs its own state changes (Tools.DebugMode)
+  if [ "${LT_DEBUG:-0}" = 1 ] && [ "$LT_MOD_FOLDER" = GrappleHook ]; then
+    grep -rl 'Tools.DebugMode = false;' "$mods/GrappleHook/Data/Scripts" | xargs -r sed -i 's/Tools.DebugMode = false;/Tools.DebugMode = true;/'
+  fi
+  # LT_CONFIG=<file>: the world starts with that GrappleHook.cfg instead of whatever it last wrote
+  if [ -n "${LT_CONFIG:-}" ]; then
+    local storage; storage=$(dirname "$(ls -d "$world"/Storage/*/GrappleHook.cfg 2>/dev/null | head -1)")
+    [ "$storage" != . ] || { echo "ERR LT_CONFIG: no GrappleHook.cfg in $world/Storage yet; run lt up once first"; return 1; }
+    cp "$LT_CONFIG" "$storage/GrappleHook.cfg"
+  fi
   point_last || return 1
   local t0; t0=$(date +%s); touch "$state/up.stamp"
   bash "$live" start >/dev/null || { restore_last; echo "ERR start failed: $state/gamescope.log"; return 1; }

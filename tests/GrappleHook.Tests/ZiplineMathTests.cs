@@ -10,272 +10,144 @@ namespace GrappleHook.Tests
         {
             RopePath path = new RopePath();
             RopeMath.ComputeCurvePoints(path, Vector3D.Zero, new Vector3D(length, 0, 0), Vector3D.Down, length, points);
+            path.UpdateDistances();
+            return path;
+        }
+
+        static RopePath SaggingRope()
+        {
+            RopePath path = new RopePath();
+            RopeMath.ComputeCurvePoints(path, Vector3D.Zero, new Vector3D(20, 0, 0), Vector3D.Down, 26d, 21);
+            path.UpdateDistances();
             return path;
         }
 
         [Fact]
-        public void GetSinAngle_IsZeroForParallelVectors()
+        public void ClosestDistance_IsTheDistanceAlongTheRopeAboveTheRider()
         {
-            Assert.Equal(0d, ZiplineMath.GetSinAngle(new Vector3D(1, 0, 0), new Vector3D(5, 0, 0)), 12);
+            RopePath rope = StraightRope();
+
+            Assert.Equal(3.5d, ZiplineMath.ClosestDistance(rope, new Vector3D(3.5, -2, 0)), 9);
         }
 
         [Fact]
-        public void GetSinAngle_IsOneForPerpendicularVectors()
+        public void ClosestDistance_ClampsToTheEnds()
         {
-            Assert.Equal(1d, ZiplineMath.GetSinAngle(new Vector3D(1, 0, 0), new Vector3D(0, 3, 0)), 12);
+            RopePath rope = StraightRope();
+
+            Assert.Equal(0d, ZiplineMath.ClosestDistance(rope, new Vector3D(-5, -1, 0)), 9);
+            Assert.Equal(10d, ZiplineMath.ClosestDistance(rope, new Vector3D(15, -1, 0)), 9);
         }
 
         [Fact]
-        public void GetSinAngle_IsHalfAtThirtyDegrees()
+        public void PointAt_IsOnTheRopeAndFacesItsEnd()
         {
-            Vector3D a = new Vector3D(1, 0, 0);
-            Vector3D b = new Vector3D(Math.Cos(Math.PI / 6d), Math.Sin(Math.PI / 6d), 0);
+            RopePath rope = StraightRope();
+            Vector3D point, tangent;
 
-            Assert.Equal(0.5d, ZiplineMath.GetSinAngle(a, b), 9);
+            ZiplineMath.PointAt(rope, 4.25d, out point, out tangent);
+
+            Assert.Equal(4.25d, point.X, 9);
+            Assert.Equal(1d, tangent.X, 9);
         }
 
         [Fact]
-        public void GetSinAngle_ZeroLengthVectorsDoNotProduceNaN()
+        public void PointAt_ClampsToTheEnds()
         {
-            Assert.Equal(0d, ZiplineMath.GetSinAngle(Vector3D.Zero, new Vector3D(1, 0, 0)), 12);
-            Assert.Equal(0d, ZiplineMath.GetSinAngle(new Vector3D(1, 0, 0), Vector3D.Zero), 12);
+            RopePath rope = StraightRope();
+            Vector3D point, tangent;
+
+            ZiplineMath.PointAt(rope, -3d, out point, out tangent);
+            Assert.Equal(0d, point.X, 9);
+
+            ZiplineMath.PointAt(rope, 30d, out point, out tangent);
+            Assert.Equal(10d, point.X, 9);
         }
 
         [Fact]
-        public void NearestPointIndex_FindsThePointUnderTheRider()
+        public void PointAt_FollowsASaggingRope()
         {
-            RopePath path = StraightRope();
+            RopePath rope = SaggingRope();
+            Vector3D point, tangent;
 
-            Assert.Equal(3, ZiplineMath.NearestPointIndex(path, new Vector3D(3, -2, 0), true));
-            Assert.Equal(7, ZiplineMath.NearestPointIndex(path, new Vector3D(7.1, -2, 0), true));
+            ZiplineMath.PointAt(rope, rope.Length / 2d, out point, out tangent);
+
+            Assert.Equal(10d, point.X, 6);
+            Assert.True(point.Y < -4d);
+            Assert.InRange(tangent.Y, -0.1d, 0.1d);
         }
 
         [Fact]
-        public void NearestPointIndex_TieBreaksTowardsTheDirectionOfTravel()
+        public void PointAtAndClosestDistance_RoundTrip()
         {
-            RopePath path = StraightRope();
-            Vector3D midway = new Vector3D(3.5, -2, 0);
+            RopePath rope = SaggingRope();
+            Vector3D point, tangent;
 
-            Assert.Equal(3, ZiplineMath.NearestPointIndex(path, midway, true));
-            Assert.Equal(4, ZiplineMath.NearestPointIndex(path, midway, false));
+            ZiplineMath.PointAt(rope, 7.3d, out point, out tangent);
+
+            Assert.Equal(7.3d, ZiplineMath.ClosestDistance(rope, point), 6);
         }
 
         [Fact]
-        public void ComputePulley_LandsOnTheRopeDirectlyAboveTheRider()
+        public void PointAt_EmptyRopeDoesNotProduceNaN()
         {
-            RopePath path = StraightRope();
+            Vector3D point, tangent;
+            ZiplineMath.PointAt(new RopePath(), 3d, out point, out tangent);
 
-            Vector3D pulley = ZiplineMath.ComputePulley(path, new Vector3D(4.4, -2, 0), true);
-
-            Assert.Equal(4.4d, pulley.X, 6);
-            Assert.Equal(0d, pulley.Y, 6);
-            Assert.Equal(0d, pulley.Z, 6);
+            Assert.Equal(Vector3D.Zero, point);
+            Assert.Equal(Vector3D.Zero, tangent);
         }
 
         [Fact]
-        public void ComputePulley_LandsOnTheRopeWhenRidingTheOtherWay()
+        public void AdvancePulley_SlidesBothWays()
         {
-            RopePath path = StraightRope();
+            double distance = 5d;
 
-            Vector3D pulley = ZiplineMath.ComputePulley(path, new Vector3D(4.4, -2, 0), false);
+            Assert.Equal(0d, ZiplineMath.AdvancePulley(10d, ref distance, true, 2d));
+            Assert.Equal(7d, distance, 9);
 
-            Assert.Equal(4.4d, pulley.X, 6);
-            Assert.Equal(0d, pulley.Y, 6);
+            Assert.Equal(0d, ZiplineMath.AdvancePulley(10d, ref distance, false, 3d));
+            Assert.Equal(4d, distance, 9);
         }
 
         [Fact]
-        public void ComputePulley_StaysOnTheRopeForARiderPastTheEnd()
+        public void AdvancePulley_ReportsRunningOffEitherEnd()
         {
-            RopePath path = StraightRope();
+            double distance = 9d;
+            Assert.Equal(1.5d, ZiplineMath.AdvancePulley(10d, ref distance, true, 2.5d), 9);
+            Assert.Equal(10d, distance, 9);
 
-            Vector3D pulley = ZiplineMath.ComputePulley(path, new Vector3D(12, -2, 0), true);
-
-            Assert.True(pulley.X <= 10.001d, $"pulley ran off the end of the rope at {pulley.X}");
-        }
-
-        [Fact]
-        public void ComputePulley_EmptyRopeLeavesTheRiderWhereTheyAre()
-        {
-            Vector3D position = new Vector3D(1, 2, 3);
-
-            Assert.Equal(position, ZiplineMath.ComputePulley(new RopePath(), position, true));
-        }
-
-        [Fact]
-        public void ComputePulley_RiderOnTheRopeDoesNotProduceNaN()
-        {
-            RopePath path = StraightRope();
-
-            Vector3D pulley = ZiplineMath.ComputePulley(path, path.Points[4], true);
-
-            Assert.False(double.IsNaN(pulley.X) || double.IsNaN(pulley.Y) || double.IsNaN(pulley.Z));
-            Assert.Equal(path.Points[4], pulley);
-        }
-
-        [Fact]
-        public void ComputePulley_SaggingRopeStillLandsOnTheRope()
-        {
-            RopePath path = new RopePath();
-            RopeMath.ComputeCurvePoints(path, Vector3D.Zero, new Vector3D(20, 0, 0), Vector3D.Down, 30d, 15);
-
-            Vector3D pulley = ZiplineMath.ComputePulley(path, new Vector3D(10, -10, 0), true);
-
-            // On a bent rope the pulley is placed along the segment next to the nearest
-            // point rather than at the exact foot of the perpendicular, so it can sit up
-            // to a segment away from straight above the rider. It must still be on the rope.
-            Assert.True(DistanceToPath(path, pulley) < 1e-6d, $"pulley is off the rope at {pulley}");
-            Assert.InRange(pulley.X, 8.5d, 11.5d);
-            // the middle of a 20m span with 30m of rope hangs 5m down
-            Assert.InRange(pulley.Y, -5.05d, -4.9d);
-        }
-
-        [Fact]
-        public void AdvancePulley_SlidesAlongTheRope()
-        {
-            RopePath path = StraightRope();
-            Vector3D pulley = new Vector3D(2, 0, 0);
-
-            double remaining = ZiplineMath.AdvancePulley(path, ref pulley, true, 3d);
-
-            Assert.Equal(0d, remaining, 9);
-            Assert.Equal(5d, pulley.X, 6);
-        }
-
-        [Fact]
-        public void AdvancePulley_SlidesBackwardsWhenRidingTheOtherWay()
-        {
-            RopePath path = StraightRope();
-            Vector3D pulley = new Vector3D(8, 0, 0);
-
-            double remaining = ZiplineMath.AdvancePulley(path, ref pulley, false, 3d);
-
-            Assert.Equal(0d, remaining, 9);
-            Assert.Equal(5d, pulley.X, 6);
-        }
-
-        [Fact]
-        public void AdvancePulley_ReportsWhatIsLeftWhenItRunsOffTheEnd()
-        {
-            RopePath path = StraightRope();
-            Vector3D pulley = new Vector3D(9, 0, 0);
-
-            double remaining = ZiplineMath.AdvancePulley(path, ref pulley, true, 4d);
-
-            Assert.True(remaining > 0, "running off the end must leave distance over, which is what dismounts the rider");
-            Assert.Equal(10d, pulley.X, 6);
-        }
-
-        [Fact]
-        public void AdvancePulley_CrossesSegmentsOfASaggingRope()
-        {
-            RopePath path = new RopePath();
-            RopeMath.ComputeCurvePoints(path, Vector3D.Zero, new Vector3D(20, 0, 0), Vector3D.Down, 30d, 15);
-            Vector3D pulley = path.Points[0];
-
-            double lastX = pulley.X;
-            for (int i = 0; i < 10; i++)
-            {
-                Vector3D before = pulley;
-                double remaining = ZiplineMath.AdvancePulley(path, ref pulley, true, 1d);
-
-                Assert.Equal(0d, remaining, 9);
-                // a metre of rope crossing a bend covers slightly less ground
-                Assert.InRange((pulley - before).Length(), 0.99d, 1.000001d);
-                Assert.True(pulley.X > lastX, "the pulley must keep moving down the rope");
-                Assert.True(DistanceToPath(path, pulley) < 1e-6d, "the pulley left the rope");
-
-                lastX = pulley.X;
-            }
-        }
-
-        static double DistanceToPath(RopePath path, Vector3D point)
-        {
-            double nearest = double.MaxValue;
-            for (int i = 0; i < path.SegmentCount; i++)
-            {
-                Vector3D a = path.Points[i];
-                Vector3D b = path.Points[i + 1];
-                Vector3D ab = b - a;
-
-                double t = Math.Min(Math.Max(Vector3D.Dot(point - a, ab) / ab.LengthSquared(), 0d), 1d);
-                double distance = (point - (a + ab * t)).Length();
-
-                if (distance < nearest) nearest = distance;
-            }
-
-            return nearest;
-        }
-
-        [Fact]
-        public void AdvancePulley_ZeroDistanceIsANoOp()
-        {
-            RopePath path = StraightRope();
-            Vector3D pulley = new Vector3D(5, 0, 0);
-
-            ZiplineMath.AdvancePulley(path, ref pulley, true, 0d);
-
-            Assert.Equal(5d, pulley.X, 9);
-        }
-
-        [Fact]
-        public void AdvancePulley_DegenerateRopeDoesNotProduceNaN()
-        {
-            RopePath path = new RopePath();
-            path.EnsureCapacity(3);
-            path.Count = 3;
-            path.Points[0] = Vector3D.Zero;
-            path.Points[1] = Vector3D.Zero;
-            path.Points[2] = Vector3D.Zero;
-
-            Vector3D pulley = Vector3D.Zero;
-            double remaining = ZiplineMath.AdvancePulley(path, ref pulley, true, 5d);
-
-            Assert.Equal(5d, remaining, 9);
-            Assert.False(double.IsNaN(pulley.X));
+            distance = 1d;
+            Assert.Equal(2d, ZiplineMath.AdvancePulley(10d, ref distance, false, 3d), 9);
+            Assert.Equal(0d, distance, 9);
         }
 
         [Fact]
         public void StepPulleySpeed_NeverFallsBelowTheMinimum()
         {
-            Assert.Equal(5d, ZiplineMath.StepPulleySpeed(0d, 0d, 0d, 5d), 9);
-            Assert.Equal(5d, ZiplineMath.StepPulleySpeed(1d, -100d, 1d, 5d), 9);
+            Assert.Equal(5d, ZiplineMath.StepPulleySpeed(0d, 0d, 5d), 9);
+            Assert.Equal(5d, ZiplineMath.StepPulleySpeed(6d, -100d, 5d), 9);
         }
 
         [Fact]
-        public void StepPulleySpeed_AcceleratesDownhill()
+        public void StepPulleySpeed_GainsGravityTimesTimeDownhill()
         {
-            double flat = ZiplineMath.StepPulleySpeed(5d, 0d, 1d, 1d);
-            double downhill = ZiplineMath.StepPulleySpeed(5d, 9.8d, 1d, 1d);
+            // a second straight down from rest: 9.8 m/s, not the runaway the old step gave
+            double speed = 0d;
+            for (int i = 0; i < 60; i++) speed = ZiplineMath.StepPulleySpeed(speed, 9.8d, 0d);
 
-            Assert.True(downhill > flat);
+            Assert.Equal(9.8d, speed, 6);
         }
 
         [Fact]
-        public void PulleyAcceleration_IsGravityWhenTheRopeRunsStraightDown()
+        public void PulleyAcceleration_IsGravityAlongTheRope()
         {
-            // tether points from the rider up to the pulley, travel runs down the rope
-            Vector3D tetherNorm = Vector3D.Up;
-            Vector3D travel = new Vector3D(0, -1, 0);
+            Vector3D gravity = new Vector3D(0, -9.8, 0);
 
-            Assert.Equal(9.8d, ZiplineMath.PulleyAcceleration(tetherNorm, travel, 9.8d), 9);
-        }
-
-        [Fact]
-        public void PulleyAcceleration_IsZeroOnALevelRope()
-        {
-            Assert.Equal(0d, ZiplineMath.PulleyAcceleration(Vector3D.Up, new Vector3D(1, 0, 0), 9.8d), 9);
-        }
-
-        [Fact]
-        public void PulleyAcceleration_IsNegativeUphill()
-        {
-            Assert.True(ZiplineMath.PulleyAcceleration(Vector3D.Up, new Vector3D(0, 1, 0), 9.8d) < 0);
-        }
-
-        [Fact]
-        public void PulleyAcceleration_StationaryPulleyDoesNotProduceNaN()
-        {
-            Assert.Equal(0d, ZiplineMath.PulleyAcceleration(Vector3D.Up, Vector3D.Zero, 9.8d), 12);
+            Assert.Equal(9.8d, ZiplineMath.PulleyAcceleration(Vector3D.Down, gravity), 9);
+            Assert.Equal(0d, ZiplineMath.PulleyAcceleration(Vector3D.Right, gravity), 9);
+            Assert.True(ZiplineMath.PulleyAcceleration(Vector3D.Up, gravity) < 0);
+            Assert.Equal(0d, ZiplineMath.PulleyAcceleration(Vector3D.Zero, gravity), 9);
         }
     }
 }

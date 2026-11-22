@@ -31,7 +31,9 @@ Environment switches for `lt world` / `lt up` (rebuild the world with `lt world`
 | `LT_MOD=workshop` | The published Workshop copy, through a `Mods/LT.3280424480` link into the workshop cache. Nothing is deployed. |
 | `LT_MOD=workshop-debug` | A copy of the Workshop build with only `Tools.DebugMode` switched on, so the mod logs its state changes. |
 | `LT_MOD=none` | The same world with no GrappleHook: the control run when deciding whether the mod is to blame. |
-| `LT_PROBE=1` | Also loads `GrappleProbe` ([probe/](probe)): it loads magazines into all four grapple blocks, fires them through the toolbar and the manual-trigger paths, detaches at 30 s, and logs each hook entity, `IsShooting` and ammo once a second (`[GrappleProbe]` lines in `lt log`). It also logs where each idle hook rests in its barrel's frame, paints the small turret red at 25 s, and parks the spectator camera for `lt shot`: on the small turret, then side-on at 10 s, close again at 25 s, then on the large and the small fixed launcher at 52 s and 60 s, their hooks back in the tubes, then back to the seat at 65 s. At 11.7 s it takes over the large turret (its terminal Control button) and logs its winch speed in each sample, for testing W and S (`live.sh hold w 3`). The manual-trigger step runs at 110 s. |
+| `LT_PROBE=1` | Also loads `GrappleProbe` ([probe/](probe)): it loads magazines into every grapple block, fires them through the toolbar and the manual-trigger paths, detaches at 30 s, and logs each hook entity, `IsShooting` and ammo once a second (`[GrappleProbe]` lines in `lt log`). It also logs where each idle hook rests in its barrel's frame, paints the small turret red at 25 s, and parks the spectator camera for `lt shot`: on the small turret, then side-on at 10 s, close again at 25 s, then on the large and the small fixed launcher at 52 s and 60 s, their hooks back in the tubes, then back to the seat at 65 s. At 11.7 s it takes over the large turret (its terminal Control button) and logs its winch speed in each sample, for testing W and S (`live.sh hold w 3`). The manual-trigger step runs at 110 s. |
+| `LT_DEBUG=1` | Switches on `Tools.DebugMode` in the deployed copy, so the mod logs its state changes, wraps (where, and how much rope) and snaps (tension, stretch, speed). |
+| `LT_CONFIG=<file>` | Starts the world with that `GrappleHook.cfg`. It needs one `lt up` first, so the world's storage folder exists. |
 | `LT_SUN_SHIFT=<minutes>` | Moves the world's clock on, which turns the sun: half of `SunRotationIntervalMinutes` (60) swaps night for day. 75 lights the rig from ToastyBugs' start. |
 | `LT_PULSAR=1` | Launch through Pulsar with the player's plugin profile, as a normal Steam launch does. |
 | `LIVE_CONTINUE_Y` | Height of Continue Game in the main menu, in 1/10000 of the window (default 5139 since update 1.211 moved it). |
@@ -58,6 +60,17 @@ the large fixed launcher as a weapon group. A character's own toolbar cannot hol
 so sit in the seat to use them. With `LT_PROBE=1` the probe seats the player at 3 s and hands
 the camera back to the seat at 65 s. `live.sh key 9`, then `live.sh click <x> <y>` (left) and
 `live.sh click <x> <y> 3` (right), drive the weapon group from there.
+
+The test world also has `GrappleRigAir`, a static platform 150 m above the rig with two large
+fixed launchers, and `GrappleRigAirSmall` beside it with a small one. With `LT_PROBE=1` the probe
+hangs a free 26 t block (2x2x2 heavy armour) on `AIRLARGE`'s rope and a 20 kg block on
+`AIRSMALL`'s, just before everything fires at 5 s. It winches both in from 15 s to 22 s, and the
+30 s Detach drops them. `AIRLARGE` sits three cells back from the platform's front edge, so with
+`Rope.Wrapping` on, its payload pulls the rope over that edge. `AIRMISS` fires at the open sky,
+for the hook's range, its drop with `Hook.Gravity`, and its return. Ten times a second the probe
+logs `PHYS` lines: each payload's distance from its muzzle, how far below it is, its speed, and
+where its hook is. Example opt-in config for a run: copy the world's `GrappleHook.cfg`, set
+`Wrapping/Enabled`, `Breaking/Enabled` and `Hook/Gravity` to `true`, and pass it as `LT_CONFIG`.
 
 Ropes do not show in `lt shot` captures, for the published build as much as this one; the hook
 entities do. Check ropes on a real screen.

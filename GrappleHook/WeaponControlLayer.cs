@@ -1,24 +1,17 @@
 using GrappleHook.Core;
-using Sandbox.Common.ObjectBuilders;
 using Sandbox.Game;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Weapons;
 using Sandbox.ModAPI;
-using SpaceEngineers.Game.ModAPI;
 using SENetworkAPI;
-using System;
 using System.Collections.Generic;
-using System.Text;
 using VRage.Game;
 using VRage.Game.Components;
 using VRage.Game.Entity;
 using VRage.Game.ModAPI;
-using VRage.Input;
 using VRage.ModAPI;
 using VRage.ObjectBuilders;
-using VRage.Utils;
 using VRageMath;
-using static VRageRender.MyBillboard;
 
 namespace GrappleHook
 {
@@ -26,19 +19,25 @@ namespace GrappleHook
     /// <summary>
     /// Everything a grapple block does, independent of what kind of weapon block it is
     /// bolted onto. GrappleTurret and GrappleFixedGun supply the block specific parts.
+    /// This file: the block's life cycle, its states and the hook in flight. The rope is in
+    /// WeaponControlLayer.Rope.cs, riding it in WeaponControlLayer.Zipline.cs.
+    ///
+    ///   idle        hook in the barrel, ready
+    ///   projectile  hook in flight, paying out rope
+    ///   attached    hook caught; the rope pulls, the winch works, players can ride it
+    ///   retracting  hook let go (detach, a miss, its target gone) and reeled back in
+    ///   reloading   counting down the weapon's reload time
     /// </summary>
-    public abstract class WeaponControlLayer : MyGameLogicComponent
+    public abstract partial class WeaponControlLayer : MyGameLogicComponent
     {
-        /// <summary>How close the player has to be looking at the rope to grab it.</summary>
-        private const double InteractRange = 3.5d;
-
         /// <summary>How far the muzzle has to move before the hook entity is moved with it.</summary>
         private const double MuzzleEpsilon = 0.001d;
 
-        private static readonly MyStringId RopeTexture = MyStringId.GetOrCompute("cable");
-        private static readonly MyStringId RopeTextureInteractable = MyStringId.GetOrCompute("cableRed");
-        private static readonly Vector4 RopeColor = Color.DarkGray;
-        private static readonly Vector4 RopeColorInteractable = Color.Red;
+        /// <summary>The idle hook's centre rests this far ahead of the muzzle.</summary>
+        private const double HookRestOffset = 1.1d;
+
+        /// <summary>Rope paid out beyond the distance to the target when the hook catches.</summary>
+        private const double AttachSlack = 1.25d;
 
         private bool waitframe = true;
 
@@ -47,7 +46,8 @@ namespace GrappleHook
 
         private MyEntity Projectile;
 
-        public enum States { idle, reloading, projectile, attached }
+        // retracting is last: the state is synced by its number
+        public enum States { idle, reloading, projectile, attached, retracting }
 
         private NetSync<States> State;
         private NetSync<long> ConnectedEntityId;
@@ -68,19 +68,25 @@ namespace GrappleHook
         private NetSync<ZiplineEntity> RequestZiplineDisconnect;
         private NetSync<List<ZiplineEntity>> ZiplinePlayers;
 
-        //private Vector3D GrapplePosition = Vector3D.Zero;
-        //private Vector3 GrappleDirection = Vector3.Zero;
+        /// <summary>The points the rope wraps around, worked out by the server.</summary>
+        private NetSync<List<WrapPoint>> Wraps;
 
+        /// <summary>The hook: where it is, which way it points.</summary>
         private MatrixD GrappleMatrix = MatrixD.Zero;
 
-        /// <summary>
-        /// The rope, recomputed once a frame and shared by the draw, the zipline
-        /// interaction check and the zipline forces.
-        /// </summary>
-        private readonly RopePath rope = new RopePath();
+        /// <summary>The hook's velocity in flight, m/s, and the launcher's when it fired.</summary>
+        private Vector3D hookVelocity;
+        private Vector3D launchVelocity;
+
+        /// <summary>Where the muzzle was last tick, so a retracting hook keeps up with a moving ship.</summary>
+        private Vector3D lastMuzzle;
+        private bool retractStarted;
+
+        /// <summary>The caught hook's orientation in its target's frame, so it turns with it.</summary>
+        private MatrixD hookLocal;
+        private bool hookLocalSet;
 
         internal bool terminalShootOn = false;
-        private bool interactable = false;
 
         /// <summary>Where the hook is anchored, in world space. Recomputed once a frame.</summary>
         private Vector3D attachPoint = Vector3D.Zero;
@@ -89,10 +95,16 @@ namespace GrappleHook
 
         /// <summary>A server with nothing to draw skips everything that only feeds the view.</summary>
         private bool isDedicated;
+        private bool isServer;
+
+        /// <summary>Ticks since the block loaded.</summary>
+        private int frame;
 
         public override void Init(MyObjectBuilder_EntityBase objectBuilder)
         {
-            if (MyAPIGateway.Session.IsServer)
+            isServer = MyAPIGateway.Session.IsServer;
+
+            if (isServer)
             {
                 Settings.Init();
 
@@ -115,14 +127,13 @@ namespace GrappleHook
             Shooting.ValueChanged += Shoot;
 
             ResetIndicator = new NetSync<bool>(this, TransferType.ClientToServer, false);
-            ResetIndicator.ValueChanged += Reset;
+            ResetIndicator.ValueChanged += Detach;
 
             GrappleLength = new NetSync<double>(this, TransferType.ServerToClient, 0);
 
             Winch = new NetSync<float>(this, TransferType.Both, 0);
 
             ReloadTime = new NetSync<float>(this, TransferType.ServerToClient, 0);
-
 
             ZiplinePlayers = new NetSync<List<ZiplineEntity>>(this, TransferType.ServerToClient, new List<ZiplineEntity>());
 
@@ -132,6 +143,7 @@ namespace GrappleHook
             RequestZiplineDisconnect = new NetSync<ZiplineEntity>(this, TransferType.ClientToServer, new ZiplineEntity(), false);
             RequestZiplineDisconnect.ValueChanged += ZiplineDisconnect;
 
+            Wraps = new NetSync<List<WrapPoint>>(this, TransferType.ServerToClient, new List<WrapPoint>());
 
             isDedicated = MyAPIGateway.Utilities.IsDedicated;
 
@@ -171,19 +183,34 @@ namespace GrappleHook
         /// <summary>A server with no player: nothing there reads input or draws.</summary>
         protected bool IsDedicated { get { return isDedicated; } }
 
+        private bool IsLargeGrid { get { return Weapon.CubeGrid.GridSizeEnum == MyCubeSize.Large; } }
+
         /// <summary>
         /// Builds this block class's terminal. Each block class needs its own registration -
         /// see TerminalControls.
         /// </summary>
         protected abstract void CreateTerminalControls();
 
-        private void Reset(bool o, bool n)
+        private void Detach(bool o, bool n)
         {
-            Reset();
+            Reset(true);
         }
-        private void Reset()
+
+        /// <summary>
+        /// Lets go of whatever the hook holds. With <paramref name="retract"/> a hook that is out
+        /// is reeled back in first; without it (the rope snapped) the hook is lost.
+        /// </summary>
+        private void Reset(bool retract)
         {
-            HideProjectile();
+            if (retract && State.Value == States.retracting) return;
+
+            bool hookOut = State.Value == States.projectile || State.Value == States.attached;
+
+            if (State.Value == States.attached && ConnectedEntity != null)
+            {
+                UpdateAttachPoint();
+                GrappleMatrix.Translation = attachPoint;
+            }
 
             if (ConnectedEntity != null)
                 ConnectedEntity.OnMarkForClose -= attachedEntityClosed;
@@ -194,13 +221,49 @@ namespace GrappleHook
             ConnectedEntityId.Value = 0;
             LocalGrapplePosition.Value = Vector3.Zero;
             LocalGrapplePositionI.Value = Vector3I.Zero;
-            State.Value = States.reloading;
+            tension = 0;
+
+            if (Wraps.Value.Count > 0)
+            {
+                Wraps.Value.Clear();
+                if (isServer) Wraps.Push();
+            }
+
+            // nobody rides a rope that has let go
+            if (ZiplinePlayers.Value.Count > 0)
+            {
+                ZiplinePlayers.Value.Clear();
+                if (isServer) ZiplinePlayers.Push();
+            }
+
+            if (retract && hookOut)
+            {
+                State.Value = States.retracting;
+            }
+            else
+            {
+                HideProjectile();
+                HideRope();
+                State.Value = States.reloading;
+            }
 
             Tools.Debug($"Reset - State Change: {State}");
         }
 
+        /// <summary>
+        /// A client following the server's target: a new id replaces whatever the client
+        /// caught itself, and 0 (the server let go) drops it.
+        /// </summary>
         private void AttemptConnect(long o, long n, ulong steamId)
         {
+            if (ConnectedEntity != null && ConnectedEntity.EntityId != n)
+            {
+                ConnectedEntity.OnMarkForClose -= attachedEntityClosed;
+                if (ConnectedEntity is IMyCubeGrid)
+                    (ConnectedEntity as IMyCubeGrid).OnBlockRemoved -= Grid_OnBlockRemoved;
+                ConnectedEntity = null;
+            }
+
             ValidateConnectedEntity();
         }
 
@@ -212,6 +275,7 @@ namespace GrappleHook
                 if (ConnectedEntity != null)
                 {
                     ConnectedEntity.OnMarkForClose += attachedEntityClosed;
+                    massRefreshFrame = 0;
                 }
             }
         }
@@ -238,45 +302,88 @@ namespace GrappleHook
             CreateTerminalControls();
         }
 
-
-
         public override void UpdateBeforeSimulation()
         {
+            frame++;
+
             UpdateWeaponGroup();
             UpdateDirectControlInput();
+
+            if (State.Value != States.retracting) retractStarted = false;
 
             switch (State.Value)
             {
                 case States.idle:
-
-                    rope.Clear();
+                    HideRope();
                     MoveProjectileToMuzzle();
                     VerifyAndRequestShoot();
                     break;
                 case States.reloading:
-                    rope.Clear();
+                    HideRope();
                     Reload();
                     break;
                 case States.projectile:
                     UpdateProjectile();
-                    UpdateRope();
                     break;
                 case States.attached:
                     ValidateConnectedEntity();
                     UpdateAttachPoint();
+                    BuildAnchors();
+                    UpdateWrapping();
+                    UpdateMasses();
                     UpdateGrappleLength();
                     ApplyForce();
-                    UpdateRope();
+
+                    // the rope snapped
+                    if (State.Value != States.attached) break;
+
+                    // a dedicated server only needs the rope's shape for riders
+                    if (isDedicated && ZiplinePlayers.Value.Count > 0) UpdateRopePath();
                     UpdateZiplineInteract();
                     UpdateZiplineForces();
                     break;
+                case States.retracting:
+                    CountDownReload();
+                    UpdateRetract();
+                    break;
             }
-
-
         }
 
+        /// <summary>
+        /// After the physics step, so the rope is drawn where its ends are now rather than a
+        /// frame behind them.
+        /// </summary>
         public override void UpdateAfterSimulation()
         {
+            if (isDedicated) return;
+
+            States state = State.Value;
+            if (state == States.attached && ConnectedEntity != null)
+            {
+                UpdateAttachPoint();
+                FollowHook();
+            }
+
+            // a client that has not found the hook's target yet has no rope to show
+            bool ropeOut = state == States.projectile || state == States.retracting || (state == States.attached && ConnectedEntity != null);
+            if (!ropeOut)
+            {
+                HideRope();
+            }
+            else
+            {
+                BuildAnchors();
+
+                if (ZiplinePlayers.Value.Count > 0 || RopeInView())
+                {
+                    UpdateRopePath();
+                }
+                else
+                {
+                    HideRope();
+                }
+            }
+
             Draw();
         }
 
@@ -286,7 +393,7 @@ namespace GrappleHook
             get { return settings.Value; }
         }
 
-        /// <summary>Breaks the connection. Routed through the server by the reset indicator.</summary>
+        /// <summary>Lets go and reels the hook in. Routed through the server by the reset indicator.</summary>
         internal void RequestDetach()
         {
             ResetIndicator.Value = !ResetIndicator.Value;
@@ -326,7 +433,7 @@ namespace GrappleHook
                 bool tighten = MyAPIGateway.Input.IsGameControlPressed(MyControlsSpace.BACKWARD);
                 if (loosen != tighten)
                 {
-                    winch = loosen ? -Config.LoosenSpeed : Config.TightenSpeed;
+                    winch = loosen ? -Config.Winch.LoosenSpeed : Config.Winch.TightenSpeed;
                 }
             }
 
@@ -364,14 +471,27 @@ namespace GrappleHook
 
         private void Shoot(ShootData o, ShootData n)
         {
-            if (State.Value != States.attached && n.direction != Vector3.Zero)
+            if (State.Value != States.attached && State.Value != States.retracting && n.direction != Vector3.Zero)
             {
                 GrappleMatrix = gun.GunBase.GetMuzzleWorldMatrix();
+
+                // the hook leaves with the launcher's own velocity, as any projectile does
+                MyPhysicsComponentBase physics = Weapon.CubeGrid.Physics;
+                launchVelocity = physics != null ? (Vector3D)physics.GetVelocityAtPoint(GrappleMatrix.Translation) : Vector3D.Zero;
+                hookVelocity = GrappleMatrix.Forward * Config.Hook.Speed + launchVelocity;
+
+                hookLocalSet = false;
+                HideRope();
                 State.Value = States.projectile;
                 ReloadTime.Value = (float)gun.GunBase.ReloadTime;
                 Shooting.SetValue(new ShootData());
                 Tools.Debug($"Shooting - State Change: {State.Value}");
             }
+        }
+
+        private Vector3D MuzzlePosition()
+        {
+            return gun.GunBase.GetMuzzleWorldMatrix().Translation;
         }
 
         private void MoveProjectileToMuzzle()
@@ -381,7 +501,7 @@ namespace GrappleHook
             if (isDedicated) return;
 
             GrappleMatrix = gun.GunBase.GetMuzzleWorldMatrix();
-            GrappleMatrix.Translation += GrappleMatrix.Forward * 1.1f;
+            GrappleMatrix.Translation += GrappleMatrix.Forward * HookRestOffset;
             MoveProjectile();
         }
 
@@ -406,58 +526,175 @@ namespace GrappleHook
             lastProjectileMatrix = GrappleMatrix;
             Projectile.WorldMatrix = GrappleMatrix;
         }
-        private void Reload()
+
+        private void CountDownReload()
         {
             if (ReloadTime.Value > 0)
                 ReloadTime.SetValue(ReloadTime.Value - 16.666667f);
+        }
+
+        private void Reload()
+        {
+            if (ReloadTime.Value > 0)
+                CountDownReload();
             else
                 State.Value = States.idle;
         }
 
+        /// <summary>
+        /// The hook in flight: launch speed plus the launcher's velocity, and with
+        /// Hook.Gravity it falls. It catches on the first thing its path crosses, and when the
+        /// rope runs out it gives up and is reeled back in.
+        /// </summary>
         private void UpdateProjectile()
         {
-            //Tools.Debug($"Projectile In Flight {(Weapon.PositionComp.WorldMatrixRef.Translation - GrapplePosition).Length()}");
-            Vector3 delta = GrappleMatrix.Forward * settings.Value.GrappleProjectileSpeed;
+            double dt = WinchMath.TickSeconds;
+
+            if (Config.Hook.Gravity)
+            {
+                hookVelocity += WorldPlanets.GetGravity(GrappleMatrix.Translation) * dt;
+            }
+
+            Vector3D delta = hookVelocity * dt;
 
             IHitInfo hit = null;
             MyAPIGateway.Physics.CastRay(GrappleMatrix.Translation, GrappleMatrix.Translation + delta, out hit);
-            if (hit != null && !hit.HitEntity.MarkedForClose)
+            if (hit != null && hit.HitEntity != null && !hit.HitEntity.MarkedForClose)
             {
-                ConnectedEntityId.Value = hit.HitEntity.EntityId;
-                ConnectedEntity = hit.HitEntity;
-                ConnectedEntity.OnMarkForClose += attachedEntityClosed;
-
-                if (ConnectedEntity is IMyCubeGrid)
-                {
-                    MyCubeGrid grid = (ConnectedEntity as MyCubeGrid);
-                    grid.OnBlockRemoved += Grid_OnBlockRemoved;
-
-                    Vector3I pos = grid.WorldToGridInteger(hit.Position + GrappleMatrix.Forward * 0.1f);
-                    IMySlimBlock block = grid.GetCubeBlock(pos);
-                    if (block != null)
-                    {
-                        LocalGrapplePositionI.Value = block.Position;
-                    }
-                }
-
-                GrappleMatrix.Translation = hit.Position + GrappleMatrix.Forward * 0.1f;
-                LocalGrapplePosition.Value = Vector3D.Transform(hit.Position + GrappleMatrix.Forward * 0.1f, MatrixD.Invert(ConnectedEntity.WorldMatrix));
-                GrappleLength.Value = (hit.Position - Weapon.PositionComp.WorldMatrixRef.Translation).Length() + 1.25f;
-                State.Value = States.attached;
-                Tools.Debug($"Attached {hit.HitEntity.DisplayName} - State Change: {State.Value}");
+                Attach(hit, delta);
             }
             else
             {
                 GrappleMatrix.Translation += delta;
 
-                // if grapple length goes beyond max length
-                if (RopeMath.ExceededRange(Weapon.PositionComp.WorldMatrixRef.Translation, GrappleMatrix.Translation, settings.Value.ShootRopeLength))
+                // falling, it points the way it flies relative to the launcher
+                if (Config.Hook.Gravity)
                 {
-                    ResetIndicator.Value = !ResetIndicator.Value;
+                    Vector3D relative = hookVelocity - launchVelocity;
+                    if (relative.LengthSquared() > 1e-6)
+                    {
+                        GrappleMatrix = Orient(GrappleMatrix.Translation, Vector3D.Normalize(relative), GrappleMatrix.Up);
+                    }
+                }
+
+                if (isServer && RopeMath.ExceededRange(MuzzlePosition(), GrappleMatrix.Translation, Config.Hook.Range))
+                {
+                    Reset(true);
                 }
             }
 
             MoveProjectile();
+        }
+
+        private void Attach(IHitInfo hit, Vector3D delta)
+        {
+            Vector3D forward = Vector3D.Normalize(delta);
+
+            ConnectedEntityId.Value = hit.HitEntity.EntityId;
+            ConnectedEntity = hit.HitEntity;
+            ConnectedEntity.OnMarkForClose += attachedEntityClosed;
+
+            // a little way into the surface, so the hook sits in it rather than on it
+            Vector3D point = hit.Position + forward * 0.1f;
+
+            if (ConnectedEntity is IMyCubeGrid)
+            {
+                MyCubeGrid grid = (ConnectedEntity as MyCubeGrid);
+                grid.OnBlockRemoved += Grid_OnBlockRemoved;
+
+                Vector3I pos = grid.WorldToGridInteger(point);
+                IMySlimBlock block = grid.GetCubeBlock(pos);
+                if (block != null)
+                {
+                    LocalGrapplePositionI.Value = block.Position;
+                }
+            }
+
+            GrappleMatrix.Translation = point;
+            attachPoint = point;
+            LocalGrapplePosition.Value = Vector3D.Transform(point, MatrixD.Invert(ConnectedEntity.WorldMatrix));
+            GrappleLength.Value = Vector3D.Distance(point, MuzzlePosition()) + AttachSlack;
+            hookLocalSet = false;
+            massRefreshFrame = 0;
+            State.Value = States.attached;
+            Tools.Debug($"Attached {hit.HitEntity.DisplayName} - State Change: {State.Value}");
+        }
+
+        /// <summary>
+        /// The hook reeled back to the muzzle, tail first, keeping up with the launcher if it
+        /// moves. It goes straight through anything in the way.
+        /// </summary>
+        private void UpdateRetract()
+        {
+            Vector3D muzzle = MuzzlePosition();
+            if (!retractStarted)
+            {
+                // a client told by the server starts here too
+                lastMuzzle = muzzle;
+                retractStarted = true;
+            }
+
+            Vector3D position = GrappleMatrix.Translation + (muzzle - lastMuzzle);
+            lastMuzzle = muzzle;
+
+            Vector3D back = muzzle - position;
+            double distance = back.Length();
+            double step = Config.Hook.RetractSpeed * WinchMath.TickSeconds;
+
+            if (distance <= step + HookRestOffset)
+            {
+                // home: the server says when, the clients park it and wait
+                HideRope();
+                MoveProjectileToMuzzle();
+                if (isServer) State.Value = States.reloading;
+                return;
+            }
+
+            Vector3D direction = back / distance;
+            GrappleMatrix = Orient(position + direction * step, -direction, GrappleMatrix.Up);
+            MoveProjectile();
+        }
+
+        /// <summary>
+        /// While caught, the hook moves and turns with what it is caught in. Only the view needs
+        /// it; the rope reads the attach point itself.
+        /// </summary>
+        private void FollowHook()
+        {
+            if (Projectile == null || ConnectedEntity == null) return;
+
+            MatrixD entityMatrix = ConnectedEntity.WorldMatrix;
+
+            if (!hookLocalSet)
+            {
+                // a client that never saw the flight has no orientation for it: point it along the rope
+                if (GrappleMatrix.Forward.LengthSquared() < 0.5d)
+                {
+                    GrappleMatrix = Orient(attachPoint, RopeWrap.Direction(MuzzlePosition(), attachPoint), Vector3D.Up);
+                }
+
+                hookLocal = GrappleMatrix * MatrixD.Invert(entityMatrix);
+                hookLocal.Translation = Vector3D.Zero;
+                hookLocalSet = true;
+            }
+
+            MatrixD world = hookLocal * entityMatrix;
+            world.Translation = attachPoint;
+            GrappleMatrix = world;
+            MoveProjectile();
+        }
+
+        /// <summary>A world matrix at position facing forward, rolled as close to up as it allows.</summary>
+        private static MatrixD Orient(Vector3D position, Vector3D forward, Vector3D up)
+        {
+            Vector3D right = Vector3D.Cross(forward, up);
+            if (right.LengthSquared() < 1e-9)
+            {
+                right = Vector3D.Cross(forward, RopeMath.Perpendicular(forward));
+            }
+            right = Vector3D.Normalize(right);
+
+            return MatrixD.CreateWorld(position, forward, Vector3D.Cross(right, forward));
         }
 
         /// <summary>
@@ -473,301 +710,19 @@ namespace GrappleHook
             }
         }
 
-        private void UpdateGrappleLength()
-        {
-            double length = WinchMath.StepLength(GrappleLength.Value, Winch.Value, settings.Value.MinRopeLength, settings.Value.MaxRopeLength);
-
-            if (length != GrappleLength.Value)
-            {
-                GrappleLength.SetValue(length);
-            }
-        }
-
-        public void ApplyForce()
-        {
-            if (Weapon.CubeGrid.Physics == null || ConnectedEntity == null || ConnectedEntity.Physics == null || Entity.MarkedForClose || ConnectedEntity.MarkedForClose)
-            {
-                return;
-            }
-
-            Vector3D turretPostion = Weapon.PositionComp.WorldMatrixRef.Translation;
-            Vector3D entityPostion = attachPoint;
-            Vector3D direction = turretPostion - entityPostion;
-            double currentLength = direction.Length();
-            direction = direction / currentLength;
-
-            double relativeSpeed = (Weapon.CubeGrid.Physics.LinearVelocity + ConnectedEntity.Physics.LinearVelocity).Length();
-            double force = WinchMath.TensionForce(currentLength, GrappleLength.Value, settings.Value.RopeForce, settings.Value.RopeDamping, relativeSpeed);
-            Vector3D forceVector = direction * force;
-
-            if (force > 0)
-            {
-                Weapon.CubeGrid.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_FORCE, -1 * forceVector, turretPostion, null, null, true);
-                ConnectedEntity.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_FORCE, forceVector, entityPostion, null, null, true);
-            }
-        }
-
         private void Grid_OnBlockRemoved(IMySlimBlock block)
         {
             if (block.Position == LocalGrapplePositionI.Value)
             {
-                Reset();
+                Tools.Debug("The hooked block was removed; letting go");
+                Reset(true);
             }
         }
 
         private void attachedEntityClosed(IMyEntity entity)
         {
-            Reset();
-        }
-
-        private void UpdateZiplineInteract()
-        {
-            interactable = false;
-
-            if (isDedicated) return;
-
-            bool interactKeyPressed = MyAPIGateway.Input.IsNewKeyPressed(MyKeys.F);
-
-            if (MyAPIGateway.Session.Player == null || !(MyAPIGateway.Session.Player.Controller.ControlledEntity is IMyCharacter)) return;
-
-            ZiplineEntity e;
-            if ((e = GetZiplineEntity(MyAPIGateway.Session.Player.IdentityId)) != null)
-            {
-                if (interactKeyPressed)
-                {
-                    RequestZiplineDisconnect.Value = e;
-                }
-                return;
-            }
-
-            IMyCamera cam = MyAPIGateway.Session.Camera;
-            if (cam == null) return;
-
-            RayD camRay = new RayD(cam.WorldMatrix.Translation, cam.WorldMatrix.Forward);
-
-            interactable = RopeMath.RayHitsPath(rope, ref camRay, InteractRange);
-
-            if (interactKeyPressed && interactable)
-            {
-                Vector3D ziplineDirection = attachPoint - Weapon.WorldMatrix.Translation;
-
-                bool direction = Vector3D.Dot(ziplineDirection, cam.WorldMatrix.Forward) >= 0;
-
-                RequestZiplineActivation.Value = new ZiplineEntity(MyAPIGateway.Session.Player.IdentityId, direction);
-            }
-        }
-
-        private void AttachToZipline(ZiplineEntity ziplineData)
-        {
-            Tools.Debug($"Attaching to zipline");
-            ZiplineEntity.Populate(ref ziplineData);
-
-            if (ziplineData.player == null || !(ziplineData.player.Controller.ControlledEntity is IMyCharacter))
-            {
-                Tools.Info($"Warning could not find the player in the list of players. This should never be happening!");
-                return;
-            }
-
-            IMyCharacter character = ziplineData.player.Character;
-            UpdateRope();
-
-            Vector3D characterPosition = character.WorldMatrix.Translation + character.WorldMatrix.Up;
-            Vector3D pulley = ZiplineMath.ComputePulley(rope, characterPosition, ziplineData.direction);
-
-            Tools.Debug($"Got pulley location {pulley}");
-
-            ziplineData.pulley = pulley;
-            ziplineData.lastPulley = pulley;
-        }
-
-        private void UpdateZiplineForces()
-        {
-            // iterated backwards: riders drop off the rope from inside the loop
-            for (int i = ZiplinePlayers.Value.Count - 1; i >= 0; i--)
-            {
-                ZiplineEntity zipEntity = ZiplinePlayers.Value[i];
-                ZiplineEntity.Populate(ref zipEntity);
-
-                if (zipEntity.player == null || !(zipEntity.player.Controller.ControlledEntity is IMyCharacter)) continue;
-
-                IMyCharacter character = zipEntity.player.Character;
-
-                if (character == null) continue;
-
-                if (character.IsDead)
-                {
-                    ZiplinePlayers.Value.RemoveAt(i);
-                    ZiplinePlayers.Push();
-                    continue;
-                }
-
-                Vector3D characterPosition = character.WorldMatrix.Translation + character.WorldMatrix.Up * 1.7f;
-                Vector3D tetherVector = zipEntity.pulley - characterPosition;
-                double tetherLength = tetherVector.Length();
-                Vector3D tetherDirectionNorm = tetherVector / tetherLength;
-
-                double force = settings.Value.ZiplineTetherForce * (tetherLength - settings.Value.ZiplineTetherLength);
-                Vector3D forceVector = tetherDirectionNorm * force - settings.Value.ZiplineDamping * character.Physics.LinearVelocity;
-                if (force > 0)
-                {
-                    character.Physics.AddForce(MyPhysicsForceType.APPLY_WORLD_FORCE, forceVector, characterPosition, null, null, true);
-                }
-
-                Vector3D travelled = zipEntity.pulley - zipEntity.lastPulley;
-                double acceleration = ZiplineMath.PulleyAcceleration(tetherDirectionNorm, travelled, settings.Value.ZiplineGraveForce);
-                double minSpeed = settings.Value.ZiplinePulleyMinSpeed * WinchMath.TickSeconds;
-
-                double velocityToApply = ZiplineMath.StepPulleySpeed(zipEntity.lastPulleyVelocity, acceleration, travelled.Length(), minSpeed);
-
-                zipEntity.lastPulley = zipEntity.pulley;
-                zipEntity.lastPulleyVelocity = zipEntity.pulleyVelocity;
-                zipEntity.pulleyVelocity = velocityToApply;
-
-                double distanceRemaining = ZiplineMath.AdvancePulley(rope, ref zipEntity.pulley, zipEntity.direction, velocityToApply);
-
-                // ran off the end of the rope
-                if (distanceRemaining > 0)
-                {
-                    ZiplinePlayers.Value.RemoveAt(i);
-                    ZiplinePlayers.Push(SyncType.Broadcast);
-                }
-            }
-        }
-
-        private bool ZiplineContainsPlayer(IMyPlayer player)
-        {
-            return ZiplineContainsPlayer(player.IdentityId);
-        }
-
-        private bool ZiplineContainsPlayer(long playerId)
-        {
-            for (int i = 0; i < ZiplinePlayers.Value.Count; i++)
-            {
-                ZiplineEntity ent = ZiplinePlayers.Value[i];
-
-                if (ent.playerId == playerId) return true;
-            }
-            return false;
-        }
-
-        private ZiplineEntity GetZiplineEntity(long playerId)
-        {
-            for (int i = 0; i < ZiplinePlayers.Value.Count; i++)
-            {
-                ZiplineEntity ent = ZiplinePlayers.Value[i];
-
-                if (ent.playerId == playerId) return ent;
-            }
-            return null;
-        }
-
-        private void ZiplineActivation(ZiplineEntity o, ZiplineEntity n)
-        {
-            if (!ZiplineContainsPlayer(n.playerId))
-            {
-                AttachToZipline(n);
-                ZiplinePlayers.Value.Add(n);
-                ZiplinePlayers.Push(SyncType.Broadcast);
-                Tools.Debug($"Player {n.playerId} activated the zipline. Active zipliners {ZiplinePlayers.Value.Count}");
-            }
-            else
-            {
-                Tools.Debug($"Player {n.playerId} is already active!");
-            }
-        }
-
-        private void ZiplineDisconnect(ZiplineEntity o, ZiplineEntity n)
-        {
-            ZiplineEntity e = GetZiplineEntity(n.playerId);
-            if (e != null)
-            {
-                ZiplinePlayers.Value.Remove(e);
-                ZiplinePlayers.Push();
-                Tools.Debug($"Player {n.playerId} was removed from the zipline. Active zipliners {ZiplinePlayers.Value.Count}");
-            }
-            else
-            {
-                Tools.Debug($"Player {n.playerId} does not exist in the list!");
-            }
-        }
-
-        private void Draw()
-        {
-            try
-            {
-                if (isDedicated) return;
-
-                List<ZiplineEntity> riders = ZiplinePlayers.Value;
-                if (rope.SegmentCount == 0 && riders.Count == 0) return;
-
-                Vector4 color = interactable ? RopeColorInteractable : RopeColor;
-                MyStringId texture = interactable ? RopeTextureInteractable : RopeTexture;
-
-                for (int i = 0; i < rope.SegmentCount; i++)
-                {
-                    MySimpleObjectDraw.DrawLine(rope.Points[i], rope.Points[i + 1], texture, ref color, 0.15f, BlendTypeEnum.Standard);
-                }
-
-                for (int i = 0; i < riders.Count; i++)
-                {
-                    ZiplineEntity zipEntity = riders[i];
-                    ZiplineEntity.Populate(ref zipEntity);
-
-                    if (zipEntity.player == null || !(zipEntity.player.Controller.ControlledEntity is IMyCharacter)) continue;
-
-                    IMyCharacter character = zipEntity.player.Character;
-                    if (character == null) continue;
-
-                    MySimpleObjectDraw.DrawLine(character.WorldMatrix.Translation + character.WorldMatrix.Up * 1.85f, zipEntity.pulley, texture, ref color, 0.05f, BlendTypeEnum.Standard);
-                }
-
-            }
-            catch (Exception e)
-            {
-                Tools.Debug(e.ToString());
-            }
-        }
-
-        private Vector3D GetSegmentDirection()
-        {
-            Vector3D sagDirection = WorldPlanets.GetGravity(Weapon.PositionComp.WorldMatrixRef.Translation);
-
-            if (sagDirection == Vector3D.Zero)
-            {
-                sagDirection = Weapon.WorldMatrix.Down;
-            }
-
-            return sagDirection;
-        }
-
-        /// <summary>
-        /// Rebuilds the rope for this frame. Everything that needs the rope - the draw, the
-        /// zipline interaction check, the zipline forces - reads the one buffer.
-        /// </summary>
-        private void UpdateRope()
-        {
-            Vector3D gunPosition = Weapon.PositionComp.WorldMatrixRef.Translation;
-            Vector3D end;
-            double referenceLength;
-
-            if (State.Value == States.projectile)
-            {
-                end = GrappleMatrix.Translation;
-                // barely any slack: the rope is being dragged out behind the projectile
-                referenceLength = Vector3D.Distance(gunPosition, end) * 1.005d;
-            }
-            else if (State.Value == States.attached && ConnectedEntity != null)
-            {
-                end = attachPoint;
-                referenceLength = GrappleLength.Value;
-            }
-            else
-            {
-                rope.Clear();
-                return;
-            }
-
-            RopeMath.ComputeCurvePoints(rope, gunPosition, end, GetSegmentDirection(), referenceLength, settings.Value.RopeSegments);
+            Tools.Debug($"The hooked entity {entity.DisplayName} closed; letting go");
+            Reset(true);
         }
     }
 }

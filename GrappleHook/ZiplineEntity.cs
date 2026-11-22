@@ -1,37 +1,43 @@
-﻿using ProtoBuf;
+using ProtoBuf;
 using Sandbox.ModAPI;
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Xml.Serialization;
 using VRage.Game.ModAPI;
 using VRageMath;
 
 namespace GrappleHook
 {
+    /// <summary>
+    /// A player riding the rope. Their place is a distance along the rope from the launcher,
+    /// so they stay on it when the rope moves or swings.
+    /// </summary>
     [ProtoContract]
     public class ZiplineEntity
     {
         [ProtoMember(1)]
         public long playerId;
 
+        /// <summary>True when riding towards the hook, false towards the launcher.</summary>
         [ProtoMember(2)]
         public bool direction;
 
-        [ProtoMember(3)]
-        public Vector3D pulley = Vector3D.Zero;
+        /// <summary>Metres along the rope from the launcher.</summary>
+        [ProtoMember(7)]
+        public double distance;
 
-        [ProtoMember(4)]
-        public double pulleyVelocity;
+        /// <summary>m/s along the rope.</summary>
+        [ProtoMember(8)]
+        public double speed;
 
-        [ProtoMember(5)]
-        public Vector3D lastPulley = Vector3D.Zero;
+        /// <summary>The pulley's world position this frame. Worked out locally, not synced.</summary>
+        [XmlIgnore]
+        public Vector3D pulley;
 
-        [ProtoMember(6)]
-        public double lastPulleyVelocity;
+        [XmlIgnore]
+        public Vector3D lastPulley;
 
+        [XmlIgnore]
+        public bool hasLastPulley;
 
         [XmlIgnore]
         public IMyPlayer player;
@@ -42,8 +48,6 @@ namespace GrappleHook
         {
             playerId = pid;
             direction = d;
-
-
         }
 
         // reused: this runs per rider per frame until the player resolves, and on a client

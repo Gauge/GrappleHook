@@ -1,3 +1,4 @@
+using System;
 using GrappleHook.Core;
 
 namespace GrappleHook.Tests
@@ -43,6 +44,18 @@ namespace GrappleHook.Tests
         }
 
         [Fact]
+        public void StepLength_NeverMovesARopeOutsideTheLimitsTheWrongWay()
+        {
+            // caught 5 m away, under the 10 m minimum: tightening holds, it does not pay out
+            Assert.Equal(5d, WinchMath.StepLength(5d, 3f, Min, Max), 9);
+            // loosening it pays out as usual
+            Assert.Equal(5d + 10d / 60d, WinchMath.StepLength(5d, -10f, Min, Max), 9);
+            // past the maximum: loosening holds, tightening reels in
+            Assert.Equal(1200d, WinchMath.StepLength(1200d, -10f, Min, Max), 9);
+            Assert.Equal(1200d - 3d / 60d, WinchMath.StepLength(1200d, 3f, Min, Max), 9);
+        }
+
+        [Fact]
         public void StepLength_AnHourOfTighteningNeverGoesBelowTheMinimum()
         {
             double length = 500d;
@@ -69,32 +82,100 @@ namespace GrappleHook.Tests
         }
 
         [Fact]
-        public void TensionForce_IsPositiveOnlyWhenTheRopeIsStretched()
+        public void WinchStalled_OnlyWhileReelingInAgainstTooMuchTension()
         {
-            // 110m of span on 100m of rope
-            Assert.True(WinchMath.TensionForce(110d, 100d, 8000000d, 0.5d, 0d) > 0);
-
-            // slack rope pulls on nothing
-            Assert.True(WinchMath.TensionForce(90d, 100d, 8000000d, 0.5d, 0d) < 0);
-            Assert.Equal(0d, WinchMath.TensionForce(100d, 100d, 8000000d, 0.5d, 0d), 9);
+            Assert.True(WinchMath.WinchStalled(3f, 2e6, 1e6));
+            Assert.True(WinchMath.WinchStalled(3f, 1e6, 1e6));
+            Assert.False(WinchMath.WinchStalled(3f, 0.5e6, 1e6));
+            // paying out and holding never stall
+            Assert.False(WinchMath.WinchStalled(-10f, 2e6, 1e6));
+            Assert.False(WinchMath.WinchStalled(0f, 2e6, 1e6));
         }
 
         [Fact]
-        public void TensionForce_IsDampedByRelativeSpeed()
+        public void EffectiveMass_IsTheReducedMass()
         {
-            double undamped = WinchMath.TensionForce(110d, 100d, 8000000d, 0.5d, 0d);
-            double damped = WinchMath.TensionForce(110d, 100d, 8000000d, 0.5d, 100d);
-
-            Assert.Equal(undamped - 50d, damped, 6);
+            Assert.Equal(500d, WinchMath.EffectiveMass(1d / 1000d, 1d / 1000d), 9);
+            // anchored on one end: all of the other
+            Assert.Equal(1000d, WinchMath.EffectiveMass(1d / 1000d, 0d), 9);
+            // anchored on both: nothing to pull
+            Assert.Equal(0d, WinchMath.EffectiveMass(0d, 0d));
         }
 
         [Fact]
-        public void TensionForce_ScalesWithStretch()
+        public void Tension_IsZeroWhenSlack()
         {
-            double small = WinchMath.TensionForce(101d, 100d, 8000000d, 0d, 0d);
-            double large = WinchMath.TensionForce(102d, 100d, 8000000d, 0d, 0d);
+            Assert.Equal(0d, WinchMath.Tension(-1d, 0d, 1000d, 1.5d, 0.7d));
+            Assert.Equal(0d, WinchMath.Tension(0d, 5d, 1000d, 1.5d, 0.7d));
+        }
 
-            Assert.Equal(2d * small, large, 3);
+        [Fact]
+        public void Tension_NeverPushes()
+        {
+            // stretched, but the ends rushing together faster than the rope can pull
+            Assert.Equal(0d, WinchMath.Tension(0.01d, -50d, 1000d, 1.5d, 0.7d));
+        }
+
+        [Fact]
+        public void Tension_ScalesWithMassAndStretch()
+        {
+            double light = WinchMath.Tension(0.1d, 0d, 100d, 1.5d, 0.7d);
+            double heavy = WinchMath.Tension(0.1d, 0d, 100000d, 1.5d, 0.7d);
+            double more = WinchMath.Tension(0.2d, 0d, 100d, 1.5d, 0.7d);
+
+            Assert.Equal(1000d * light, heavy, 3);
+            Assert.Equal(2d * light, more, 6);
+        }
+
+        [Fact]
+        public void Tension_HoldsAWeightWithASmallStretch()
+        {
+            // 1000 kg hanging at 1 g settles where the rope pulls 9810 N: a tenth of a metre at 1.5 Hz
+            double omega = 2d * Math.PI * 1.5d;
+            double stretch = 9.81d / (omega * omega);
+
+            Assert.Equal(9810d, WinchMath.Tension(stretch, 0d, 1000d, 1.5d, 0.7d), 3);
+            Assert.InRange(stretch, 0.1d, 0.12d);
+        }
+
+        [Fact]
+        public void Tension_IsDampedByHowFastTheRopeStretches()
+        {
+            double still = WinchMath.Tension(0.1d, 0d, 1000d, 1.5d, 0.7d);
+            double opening = WinchMath.Tension(0.1d, 1d, 1000d, 1.5d, 0.7d);
+
+            Assert.Equal(still + 1000d * 2d * 0.7d * 2d * Math.PI * 1.5d, opening, 6);
+        }
+
+        /// <summary>
+        /// A body on the rope, stepped the way the game does: force applied for a tick, then the
+        /// velocity, then the position. The old fixed spring blew up on light grids.
+        /// </summary>
+        [Theory]
+        [InlineData(20d)]
+        [InlineData(1000d)]
+        [InlineData(5000000d)]
+        public void Tension_CatchesAFallingBodyOfAnyMassWithoutBlowingUp(double mass)
+        {
+            double ropeLength = 10d;
+            double y = -10d;           // hanging from 0, rope just taut
+            double v = -20d;           // falling fast when it goes taut
+            double dt = WinchMath.TickSeconds;
+            double lowest = y;
+
+            for (int i = 0; i < 60 * 10; i++)
+            {
+                double stretch = -y - ropeLength;
+                double tension = WinchMath.Tension(stretch, -v, mass, 1.5d, 0.7d);
+                v += (tension / mass - 9.81d) * dt;
+                y += v * dt;
+                lowest = Math.Min(lowest, y);
+            }
+
+            // stopped, and hanging still a little below the rope's length
+            Assert.InRange(v, -0.05d, 0.05d);
+            Assert.InRange(-y - ropeLength, 0d, 0.2d);
+            Assert.True(lowest > -14d);
         }
     }
 }

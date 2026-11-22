@@ -288,7 +288,7 @@ namespace GrappleHook
             sliderWinch.Title = MyStringId.GetOrCompute("Tighten Winch");
             sliderWinch.Enabled = isThisMod;
             sliderWinch.Visible = isThisMod;
-            sliderWinch.SetLimits(-settings.LoosenSpeed, settings.TightenSpeed);
+            sliderWinch.SetLimits(-settings.Winch.LoosenSpeed, settings.Winch.TightenSpeed);
             sliderWinch.Getter = (block) =>
             {
                 WeaponControlLayer layer = block.GameLogic.GetAs<WeaponControlLayer>();
@@ -354,7 +354,7 @@ namespace GrappleHook
                 WeaponControlLayer logic = block.GameLogic.GetAs<WeaponControlLayer>();
                 if (logic != null)
                 {
-                    logic.Winch.Value = WinchMath.StepWinch(logic.Winch.Value, 1f, logic.Config.LoosenSpeed, logic.Config.TightenSpeed);
+                    logic.Winch.Value = WinchMath.StepWinch(logic.Winch.Value, 1f, logic.Config.Winch.LoosenSpeed, logic.Config.Winch.TightenSpeed);
                     sliderWinch.UpdateVisual();
                 }
             };
@@ -376,7 +376,7 @@ namespace GrappleHook
                 WeaponControlLayer logic = block.GameLogic.GetAs<WeaponControlLayer>();
                 if (logic != null)
                 {
-                    logic.Winch.Value = WinchMath.StepWinch(logic.Winch.Value, -1f, logic.Config.LoosenSpeed, logic.Config.TightenSpeed);
+                    logic.Winch.Value = WinchMath.StepWinch(logic.Winch.Value, -1f, logic.Config.Winch.LoosenSpeed, logic.Config.Winch.TightenSpeed);
                     sliderWinch.UpdateVisual();
                 }
             };

@@ -4,209 +4,117 @@ using VRageMath;
 namespace GrappleHook.Core
 {
     /// <summary>
-    /// Where a rider hangs from the rope and how they slide along it. Pure math, no game
-    /// state, so it can be tested outside the game.
+    /// Where a rider hangs on the rope and how they slide along it. A rider's place is a
+    /// distance along the rope from its start, so they move with the rope when it moves.
+    /// Pure math, no game state, so it can be tested outside the game.
     /// </summary>
     public static class ZiplineMath
     {
         /// <summary>
-        /// Sine of the angle between two vectors, via the cross product. Returns 0 if
-        /// either vector has no length.
+        /// Distance along the rope to the point on it closest to <paramref name="position"/>.
+        /// The path's distances must be up to date.
         /// </summary>
-        public static double GetSinAngle(Vector3D a, Vector3D b)
+        public static double ClosestDistance(RopePath path, Vector3D position)
         {
-            double magnitudeA = a.Length();
-            double magnitudeB = b.Length();
+            double best = double.MaxValue;
+            double bestDistance = 0;
 
-            if (magnitudeA == 0 || magnitudeB == 0)
+            for (int i = 0; i < path.SegmentCount; i++)
             {
-                return 0;
-            }
+                Vector3D a = path.Points[i];
+                Vector3D ab = path.Points[i + 1] - a;
+                double lengthSquared = ab.LengthSquared();
+                double t = lengthSquared > 0 ? Math.Max(0d, Math.Min(1d, Vector3D.Dot(position - a, ab) / lengthSquared)) : 0d;
 
-            return Vector3D.Cross(a, b).Length() / (magnitudeA * magnitudeB);
-        }
-
-        /// <summary>
-        /// Index of the rope point nearest the rider. Scanned from the far end when the
-        /// rider faces back down the rope, so the tie break favours the point they are
-        /// travelling towards.
-        /// </summary>
-        public static int NearestPointIndex(RopePath path, Vector3D position, bool direction)
-        {
-            int nearIndex = 0;
-            double nearValue = double.MaxValue;
-
-            for (int i = 0; i < path.Count; i++)
-            {
-                int index = (direction) ? i : path.Count - 1 - i;
-
-                double distance = (position - path.Points[index]).LengthSquared();
-                if (distance < nearValue)
+                double d = (a + ab * t - position).LengthSquared();
+                if (d < best)
                 {
-                    nearIndex = index;
-                    nearValue = distance;
+                    best = d;
+                    bestDistance = path.Distances[i] + (path.Distances[i + 1] - path.Distances[i]) * t;
                 }
             }
 
-            return nearIndex;
+            return bestDistance;
         }
 
         /// <summary>
-        /// Drops a pulley onto the rope beneath the rider: the point on the nearest rope
-        /// segment closest to them, which is what the tether then pulls towards.
+        /// The point <paramref name="distance"/> along the rope and the rope's direction there
+        /// (towards its end). The path's distances must be up to date.
         /// </summary>
-        public static Vector3D ComputePulley(RopePath path, Vector3D characterPosition, bool direction)
+        public static void PointAt(RopePath path, double distance, out Vector3D point, out Vector3D tangent)
         {
+            tangent = Vector3D.Zero;
+
             if (path.Count == 0)
             {
-                return characterPosition;
+                point = Vector3D.Zero;
+                return;
             }
 
-            int nearIndex = NearestPointIndex(path, characterPosition, direction);
-            Vector3D centerSegment = path.Points[nearIndex];
+            point = path.Points[0];
 
-            Vector3D nextSegment = (nearIndex + 1 < path.Count) ? path.Points[nearIndex + 1] : centerSegment;
-            Vector3D previousSegment = (nearIndex - 1 >= 0) ? path.Points[nearIndex - 1] : centerSegment;
-
-            if (!direction)
+            for (int i = 0; i < path.SegmentCount; i++)
             {
-                Vector3D temp = nextSegment;
-                nextSegment = previousSegment;
-                previousSegment = temp;
-            }
+                double from = path.Distances[i];
+                double to = path.Distances[i + 1];
+                Vector3D segment = path.Points[i + 1] - path.Points[i];
 
-            Vector3D centerToNext = nextSegment - centerSegment;
-            Vector3D playerToCenter = centerSegment - characterPosition;
-            double playerToCenterMag = playerToCenter.Length();
-
-            if (playerToCenterMag == 0)
-            {
-                return centerSegment;
-            }
-
-            Vector3D anchor;
-            Vector3D anchorNorm;
-            double sinTheta;
-
-            // in front of the centre point: lean on the segment ahead of the rider
-            if (Vector3D.Dot(playerToCenter, centerToNext) < 0)
-            {
-                anchor = centerToNext;
-                sinTheta = GetSinAngle(anchor, -playerToCenter);
-
-                if (anchor.LengthSquared() == 0)
+                if (to > from)
                 {
-                    return centerSegment;
+                    tangent = segment / (to - from);
                 }
 
-                anchorNorm = Vector3D.Normalize(anchor);
-            }
-            else
-            {
-                anchor = centerSegment - previousSegment;
-                sinTheta = GetSinAngle(anchor, playerToCenter);
-
-                if (anchor.LengthSquared() == 0)
+                if (distance <= to || i == path.SegmentCount - 1)
                 {
-                    return centerSegment;
+                    double t = to > from ? Math.Max(0d, Math.Min(1d, (distance - from) / (to - from))) : 0d;
+                    point = path.Points[i] + segment * t;
+                    return;
                 }
-
-                anchorNorm = -Vector3D.Normalize(anchor);
             }
-
-            double playerPulleyMag = sinTheta * playerToCenterMag;
-            double pulleyToAnchorSquared = playerToCenterMag * playerToCenterMag - playerPulleyMag * playerPulleyMag;
-
-            if (pulleyToAnchorSquared <= 0)
-            {
-                return centerSegment;
-            }
-
-            return centerSegment + anchorNorm * Math.Sqrt(pulleyToAnchorSquared);
         }
 
         /// <summary>
-        /// Speed of the pulley for this tick. The rider accelerates under gravity by how
-        /// steeply the rope runs ahead of them, and never drops below the configured
-        /// minimum so they always reach the far end.
+        /// The pull of gravity along the direction of travel, m/s². Positive when the rope runs
+        /// downhill ahead of the rider.
         /// </summary>
-        public static double StepPulleySpeed(double lastSpeed, double acceleration, double travelled, double minSpeed)
+        public static double PulleyAcceleration(Vector3D travelDirection, Vector3D gravity)
         {
-            double velocitySquared = Math.Max(lastSpeed * lastSpeed + 2d * acceleration * travelled * travelled, minSpeed * minSpeed);
-            return Math.Sqrt(velocitySquared);
+            return Vector3D.Dot(gravity, travelDirection);
         }
 
         /// <summary>
-        /// Component of gravity along the direction the pulley last moved. Positive when
-        /// the rope runs downhill ahead of the rider.
+        /// Speed of the pulley, m/s, after one tick of <paramref name="acceleration"/>. The
+        /// pulley never drops below <paramref name="minSpeed"/>, so riders always reach the end.
         /// </summary>
-        public static double PulleyAcceleration(Vector3D tetherDirectionNorm, Vector3D travelVector, double gravity)
+        public static double StepPulleySpeed(double speed, double acceleration, double minSpeed)
         {
-            if (travelVector == Vector3D.Zero)
-            {
-                return 0;
-            }
-
-            return Vector3D.Dot(-tetherDirectionNorm, Vector3D.Normalize(travelVector)) * gravity;
+            return Math.Max(speed + acceleration * WinchMath.TickSeconds, minSpeed);
         }
 
         /// <summary>
-        /// Slides the pulley <paramref name="distance"/> metres along the rope and returns
-        /// whatever distance was left over, which happens only when the pulley runs off the
-        /// end of the rope.
+        /// Moves a rider <paramref name="step"/> metres along a rope <paramref name="ropeLength"/>
+        /// long, towards its end when <paramref name="direction"/> is true. Returns how far past
+        /// the end they would have gone: more than zero means they ran off the rope.
         /// </summary>
-        public static double AdvancePulley(RopePath path, ref Vector3D pulley, bool direction, double distance)
+        public static double AdvancePulley(double ropeLength, ref double distance, bool direction, double step)
         {
-            for (int j = 0; j < path.SegmentCount; j++)
+            distance += direction ? step : -step;
+
+            if (distance > ropeLength)
             {
-                if (distance == 0) break;
-
-                int index = j;
-                int index2 = j + 1;
-                if (!direction)
-                {
-                    index = path.Count - 1 - j;
-                    index2 = index - 1;
-                }
-
-                Vector3D start = path.Points[index];
-                Vector3D end = path.Points[index2];
-
-                Vector3D segmentDirection = end - start;
-                if (segmentDirection == Vector3D.Zero) continue;
-
-                Vector3D segmentNorm = Vector3D.Normalize(segmentDirection);
-
-                Vector3D startDirection = start - pulley;
-                Vector3D startNorm = Vector3D.Zero;
-                if (startDirection != Vector3D.Zero)
-                {
-                    startNorm = Vector3D.Normalize(startDirection);
-                }
-
-                Vector3D endDirection = end - pulley;
-                if (endDirection == Vector3D.Zero) continue;
-
-                Vector3D endNorm = Vector3D.Normalize(endDirection);
-
-                // the pulley is on this segment when the start is behind it and the end ahead
-                bool startBehind = Vector3D.Dot(startNorm, segmentNorm) <= 0 || Math.Abs((pulley - startDirection).Length()) < 0.01f;
-                if (!startBehind || Vector3D.Dot(endNorm, segmentNorm) < 0) continue;
-
-                double length = endDirection.Length();
-                if (distance < length)
-                {
-                    pulley += endNorm * distance;
-                    distance = 0;
-                }
-                else
-                {
-                    distance -= length;
-                    pulley += endNorm * length;
-                }
+                double over = distance - ropeLength;
+                distance = ropeLength;
+                return over;
             }
 
-            return distance;
+            if (distance < 0)
+            {
+                double over = -distance;
+                distance = 0;
+                return over;
+            }
+
+            return 0;
         }
     }
 }

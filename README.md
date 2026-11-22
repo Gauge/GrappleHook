@@ -1,8 +1,8 @@
 # Grapple Hook
 
-A Space Engineers mod that adds a grapple hook launcher. It fires a hook on a rope, the rope
-pulls the two grids together under a damped spring, a winch reels it in or pays it out, and
-players can clip onto the rope and ride it like a zipline.
+A Space Engineers mod that adds a grapple hook launcher. It fires a hook on a rope that holds
+whatever it catches like a real rope, a winch reels it in or pays it out, and players can clip
+onto the rope and ride it like a zipline.
 
 * **Namespace:** `GrappleHook`
 * **Network channel ID:** `32144`
@@ -51,6 +51,93 @@ thrusters, which a mod cannot stop.
 The grapple's own terminal actions (Detach, Tighten, Loosen, Reset) have toolbar icons in the
 style of the game's, drawn by [tools/model/action_icons.py](tools/model/action_icons.py).
 
+## The rope
+
+[WeaponControlLayer.Rope.cs](GrappleHook/WeaponControlLayer.Rope.cs) is the rope; the math under
+it is in [Core](GrappleHook/Core) and unit tested.
+
+**Holding.** The rope is a length paid out between the muzzle and the hook. It pulls only when the
+two are further apart than that, like a real rope, and never pushes. The pull is a stiff, damped
+constraint scaled to the mass on its ends (`Rope.SpringFrequency`, `Rope.DampingRatio`), so it
+behaves the same on a 20 kg block as on a capital ship: no shaking on light grids, no bungee
+bounce on heavy ones. The mass on each end counts everything joined to it by rotors, pistons,
+hinges and connectors, and anything static, or joined to something static, is an anchor. The
+damping works on how fast the rope itself is stretching, from each end's velocity at the point
+the rope pulls on, so two ships towing side by side are not slowed down. Measured in game: a
+26 t payload on a 13 m rope swings as a pendulum and stretches it 0.3 m at the bottom of the
+swing; a 20 kg block stretches its rope 0.25 m.
+
+**The winch** reels in at up to `Winch.TightenSpeed` and pays out at up to `Winch.LoosenSpeed`.
+It can only pull so hard: `Winch.ForceLargeGrid` for a launcher on a large grid,
+`Winch.ForceSmallGrid` on a small one. A load heavier than that stalls the winch, and its brake
+still holds it. Tightening a rope already shorter than `Rope.MinLength` leaves it alone rather
+than paying it out to the minimum.
+
+**Breaking** (`Rope.Breaking`, off by default) snaps the rope when its tension passes the
+strength for its grid size, and the hook is lost. The hardest pull a rope sees is catching a load
+that has fallen into its slack: in the test world a 26 t block falling 6.5 m/s pulled 2.4 MN for
+an instant. Set the strengths with that in mind.
+
+**Wrapping** (`Rope.Wrapping`, off by default) lets the rope catch on grids and voxels between
+the launcher and the hook. The server tests each span of the rope against the world every tick.
+When one swings into something, it finds the edge the rope first touched and bends the rope
+there. The rope lets go of the edge once it swings back past straight. A taut rope presses into
+each edge it bends around, so a free grid it is wrapped over is pushed. Each wrap point moves
+with what it is on, and the server sends them to clients.
+
+**The hook** leaves with the launcher's own velocity plus `Hook.Speed`, and with `Hook.Gravity`
+(off by default) it falls in flight, so far targets need aiming above. One that catches nothing
+by `Hook.Range` gives up. After a detach, a miss, or its target being destroyed, the hook is
+reeled back to the launcher at `Hook.RetractSpeed`, keeping up with the launcher if it moves.
+While caught, the hook model moves and turns with what it is caught in.
+
+**What you see** is drawn after the physics step, so the rope stays on its ends on a fast ship.
+On a client it is a chain of points that swings under gravity and its own momentum: it settles
+into the hanging curve in gravity, and in space a slack rope floats instead of sagging. A
+dedicated server draws nothing and only works out the exact hanging curve (a catenary) when
+someone is riding the rope.
+
+**Riding** (F while looking at the rope) clips the player on at a distance along the rope, so
+they travel with the rope when it moves. Gravity along the rope speeds them up downhill, and
+`Zipline.MinSpeed` keeps them moving.
+
+**Cost.** A rope off screen or more than 2.5 km from the camera is not built or drawn. A dedicated
+server builds no rope shape at all unless someone is riding it. A slack rope skips the force
+work entirely, mass lookups happen once a second, and nothing allocates per frame. Wrapping, when
+it is on, costs one ray per span of rope per tick on the server.
+
+**What it is sized for.** The defaults come from 8,122 workshop ships, the blueprint corpus the
+Thermodynamics mod surveys, weighed by their build components (empty inventories, so real ships
+are heavier):
+
+| | Small grid ships | Large grid ships |
+| --- | --- | --- |
+| Mass, middle half | 25 t to 103 t (median 49 t) | 570 t to 5.4 kt (median 1.8 kt) |
+| Length, median / 95th percentile | 12.5 m / 37 m | 105 m / 365 m |
+| Full thrust, median | 2.8 MN | 74 MN |
+| Have rotor, piston, hinge or connector parts | 57% | 50% |
+
+The winch on each grid size lifts 40% of the ships of that size straight up against 1 g
+(11.5 MN large, 0.37 MN small); in space it moves anything, heavier ships slower. With breaking on,
+a rope holds against the full thrust of 65% of the ships of its size, so only the most powerful
+35% can break free (113 MN large, 4.3 MN small). `Rope.MinLength` is 3 m, as a third of small ships
+are shorter than 10 m. Pulling through a rotor holds: in the test world a 412 t block hung from an
+850 kg rotor head, swinging at 19 m/s with about 11 MN through the joint, and the head did not
+move on its stator.
+
+## Settings
+
+The server keeps them in its world, as `Storage/<mod storage folder>/GrappleHook.cfg`, and syncs
+them to every client. The file is grouped into `Rope`, `Winch`, `Hook` and `Zipline`, with a
+comment above each value giving its meaning and units. Edit it with the world closed. Deleting a
+value brings back its default, a value out of range is clamped (the game log says which), and the
+file is rewritten on load, so values added by a newer version appear with their comments. A file
+the mod cannot read is kept as `GrappleHook.unreadable.cfg` and the defaults are used.
+
+The flat file of version 11 and earlier is one of those: its values do not carry over, because
+most of them changed meaning (the rope's fixed spring rate became a winch strength, and the hook
+speed is in m/s instead of metres per tick).
+
 ## Repo layout
 
 Laid out the way [Thermodynamics](../Thermodynamics) is: the repository holds the mod project,
@@ -60,7 +147,7 @@ and **only the mod project folder ships**.
 | --- | --- |
 | [GrappleHook/](GrappleHook) | The mod project (MDK2). Everything here that [mdk.ini](GrappleHook/mdk.ini) does not ignore is packed into the game's `Mods/GrappleHook`. |
 | [GrappleHook/*.cs](GrappleHook) | Session component, block logic, terminal controls, settings, networking. Packed to `Data/Scripts/GrappleHook/`. |
-| [GrappleHook/Core/](GrappleHook/Core) | The pure part: rope shape, winch and tension math, zipline pulley math. No game API, no session, no entity. Ships with the mod and is compiled by the game like everything else. |
+| [GrappleHook/Core/](GrappleHook/Core) | The pure part: the rope's hanging shape and its swinging chain, tension and winch math, wrap geometry, zipline math. No game API, no session, no entity. Ships with the mod and is compiled by the game like everything else. |
 | [GrappleHook/SENetworkAPI/](GrappleHook/SENetworkAPI) | Vendored copy of SENetworkAPI, used for all client/server state sync. |
 | [GrappleHook/Content/](GrappleHook/Content) | `Data/` (block, weapon, ammo and blueprint definitions), `Models/`, `Textures/`. Packed to the mod root. |
 | [tests/](tests) | Projects that link the same `Core` sources so they can be built and tested outside the game, plus the definition checks. |
@@ -135,8 +222,9 @@ into `Mods/GrappleHook/` once. `mdk.ini`'s `donotclean` keeps them there across 
 
 **The scripts folder changed from `Data/Scripts/hook` to `Data/Scripts/GrappleHook`.** The game
 names a mod's world storage after that folder, so a server's `GrappleHook.cfg` moves from
-`Storage/3280424480.sbm_hook/` to `Storage/3280424480.sbm_GrappleHook/` with this update; a server
-that customised it must copy the file across, or it starts from defaults.
+`Storage/3280424480.sbm_hook/` to `Storage/3280424480.sbm_GrappleHook/` with this update. Its
+values would not carry over anyway (see [Settings](#settings)), so a server that customised it
+starts from the new defaults and sets them again in the new layout.
 
 ## Why `Core` is separate
 

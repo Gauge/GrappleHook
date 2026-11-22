@@ -32,6 +32,11 @@ namespace GrappleProbe
             public string Name;
             public IMyUserControllableGun Block;
             public IMyEntity Hook;
+            /// <summary>What the air rig's launchers fire at: a free grid the probe spawns.</summary>
+            public IMyCubeGrid Payload;
+            /// <summary>The rotor on AIRLARGE's payload, whose head the hook catches.</summary>
+            public IMyMotorStator Stator;
+            public double JointRest = -1;
         }
 
         int tick;
@@ -69,6 +74,17 @@ namespace GrappleProbe
                 if (id != null) Log("VANILLA " + id + ": Shoot " + before + " -> " + vanilla.Shoot);
             }
             if (tick == 250) { AssignHooks(); foreach (Gun g in guns) RestPose(g); }
+            // the rope physics, on the air rig: payloads appear just before everything fires,
+            // hang and swing on their ropes, are winched up at 15 s for 7 s, and let go at 30 s
+            if (tick == 290) SpawnPayloads();
+            if (tick == 292) BuildRotorHead();
+            if (tick >= 298 && tick <= 2700 && tick % 6 == 0) foreach (Gun g in guns) Physics(g);
+            if (tick == 900 || tick == 1320)
+            {
+                float speed = tick == 900 ? 3f : 0f;
+                foreach (Gun g in guns) if (g.Payload != null) ((IMyTerminalBlock)g.Block).SetValueFloat("Winch", speed);
+                Log("ACT air winch " + speed);
+            }
             if (tick == 300) { Log("ACT ShootOnce (toolbar path)"); foreach (Gun g in guns) ApplyTo(g.Block, "ShootOnce"); }
             if (tick == 1800) { Log("ACT Detach"); foreach (Gun g in guns) ApplyTo(g.Block, "Detach"); }
             // attached from ~6 s to the Detach at 30 s, long enough to catch the rope in a screenshot.
@@ -100,8 +116,13 @@ namespace GrappleProbe
                 {
                     Log("weapon block " + b.BlockDefinition.Id + " on " + grid.DisplayName + " (" + grid.GridSizeEnum + ") functional=" + b.FatBlock.IsFunctional + " working=" + b.FatBlock.IsWorking);
                     string sub = b.BlockDefinition.Id.SubtypeName;
+                    string name = sub.Replace("GrappleHookTurret", "").Replace("GrappleHook", "").ToUpperInvariant();
+                    // the air rig: AIRLARGE and AIRSMALL hang payloads, AIRMISS (on the platform's
+                    // front edge) fires at the open sky
+                    if (grid.DisplayName.StartsWith("GrappleRigAir"))
+                        name = b.Min.Z == -3 ? "AIRMISS" : "AIR" + name.Replace("FIXED", "");
                     if (sub.StartsWith("GrappleHook"))
-                        guns.Add(new Gun { Name = sub.Replace("GrappleHookTurret", "").Replace("GrappleHook", "").ToUpperInvariant(), Block = (IMyUserControllableGun)b.FatBlock });
+                        guns.Add(new Gun { Name = name, Block = (IMyUserControllableGun)b.FatBlock });
                     if (b.BlockDefinition.Id.TypeId.ToString().EndsWith("LargeGatlingTurret")) vanilla = (IMyUserControllableGun)b.FatBlock;
                 }
             }
@@ -151,6 +172,125 @@ namespace GrappleProbe
                 foreach (var inner in part.Value.Subparts)
                     return inner.Value;
             return null;
+        }
+
+        void SpawnPayloads()
+        {
+            Vector3D gravity = MyAPIGateway.Physics.CalculateNaturalGravityAt(guns.Find(x => x.Name == "AIRMISS")?.Block.WorldMatrix.Translation ?? Vector3D.Zero, out _unused);
+            Log("air rig gravity " + gravity.Length().ToString("0.00") + " m/s2");
+            // a heavy hull with a rotor on the face towards the launcher: the hook catches the rotor
+            // head, so the rope pulls the hull through the joint, as hooking a ship's turret or
+            // rotor part does
+            Payload("AIRLARGE", MyCubeSize.Large, "LargeHeavyBlockArmorBlock", 5, 20.0, true);
+            Payload("AIRSMALL", MyCubeSize.Small, "SmallBlockArmorBlock", 1, 6.0);
+        }
+        float _unused;
+
+        /// <summary>A free grid, n x n x n blocks, centred dist metres in front of a launcher.</summary>
+        void Payload(string name, MyCubeSize size, string block, int n, double dist, bool rotor = false)
+        {
+            Gun g = guns.Find(x => x.Name == name);
+            if (g == null) return;
+            MatrixD m = g.Block.WorldMatrix;
+            double cell = size == MyCubeSize.Large ? 2.5 : 0.5;
+            double half = (n - 1) * cell / 2;
+            Vector3D centre = m.Translation + m.Forward * dist;
+            // grid +X right, +Y up, +Z back; block (0,0,0) sits at the grid's origin
+            Vector3D origin = centre - m.Right * half - m.Up * half - m.Backward * half;
+
+            MyObjectBuilder_CubeGrid ob = new MyObjectBuilder_CubeGrid
+            {
+                GridSizeEnum = size,
+                IsStatic = false,
+                PersistentFlags = MyPersistentEntityFlags2.InScene,
+                PositionAndOrientation = new MyPositionAndOrientation(origin, m.Forward, m.Up),
+                DisplayName = "Payload" + name,
+            };
+            for (int x = 0; x < n; x++)
+                for (int y = 0; y < n; y++)
+                    for (int z = 0; z < n; z++)
+                        ob.CubeBlocks.Add(new MyObjectBuilder_CubeBlock { SubtypeName = block, Min = new SerializableVector3I(x, y, z) });
+            // grid +Z faces the launcher: the stator sits on that face, its top pointing at it
+            if (rotor)
+                ob.CubeBlocks.Add(new MyObjectBuilder_MotorStator
+                {
+                    SubtypeName = "LargeStator",
+                    Min = new SerializableVector3I(n / 2, n / 2, n),
+                    BlockOrientation = new SerializableBlockOrientation(Base6Directions.Direction.Up, Base6Directions.Direction.Backward),
+                });
+
+            MyAPIGateway.Entities.RemapObjectBuilder(ob);
+            g.Payload = (IMyCubeGrid)MyAPIGateway.Entities.CreateFromObjectBuilderAndAdd(ob);
+            if (rotor)
+            {
+                List<IMySlimBlock> stators = new List<IMySlimBlock>();
+                g.Payload.GetBlocks(stators, b => b.FatBlock is IMyMotorStator);
+                if (stators.Count > 0) g.Stator = (IMyMotorStator)stators[0].FatBlock;
+            }
+            Log("PAYLOAD " + name + " " + n + "x" + n + "x" + n + " " + block + " mass=" + (g.Payload.Physics == null ? "?" : g.Payload.Physics.Mass.ToString("0")) + " kg, " + dist + " m out");
+        }
+
+        void BuildRotorHead()
+        {
+            foreach (Gun g in guns)
+            {
+                if (g.Stator == null) continue;
+                // the terminal's Add Top Part: the mod API has no other way to build a head
+                List<ITerminalAction> actions = new List<ITerminalAction>();
+                ((IMyTerminalBlock)g.Stator).GetActions(actions);
+                ITerminalAction add = actions.Find(x => (x.Id.Contains("Top") || x.Id.Contains("Head")) && !x.Id.Contains("Small"));
+                if (add == null)
+                {
+                    StringBuilder ids = new StringBuilder();
+                    foreach (ITerminalAction x in actions) ids.Append(x.Id).Append(' ');
+                    Log("ERR no add-head action on the stator: " + ids);
+                    continue;
+                }
+                Log("ROTOR using action " + add.Id);
+                add.Apply((IMyTerminalBlock)g.Stator);
+                Log("ROTOR head requested on " + g.Name + "'s payload");
+            }
+        }
+
+        /// <summary>
+        /// Ten times a second: how the rope holds each payload (distance from the muzzle, how far
+        /// below it, speed, where its hook is), and where the AIRMISS hook is in flight or coming back.
+        /// </summary>
+        void Physics(Gun g)
+        {
+            if (!g.Name.StartsWith("AIR") || g.Block.MarkedForClose) return;
+            FindHook(g);
+            IMyGunObject<MyGunBase> gb = g.Block as IMyGunObject<MyGunBase>;
+            MatrixD muzzle = gb.GunBase.GetMuzzleWorldMatrix();
+            string hook = g.Hook == null || g.Hook.WorldMatrix.Translation.X > 1e30 ? "hidden"
+                : "ahead " + Vector3D.Dot(g.Hook.WorldMatrix.Translation - muzzle.Translation, muzzle.Forward).ToString("0.00")
+                + " below " + Vector3D.Dot(muzzle.Translation - g.Hook.WorldMatrix.Translation, muzzle.Up).ToString("0.00");
+            string line = "PHYS " + g.Name + " t=" + (tick / 60.0).ToString("0.0") + " hook " + hook;
+            if (g.Payload != null && g.Payload.Physics != null)
+            {
+                Vector3D p = g.Payload.Physics.CenterOfMassWorld;
+                line += " | payload dist " + Vector3D.Distance(p, muzzle.Translation).ToString("0.000")
+                    + " ahead " + Vector3D.Dot(p - muzzle.Translation, muzzle.Forward).ToString("0.00")
+                    + " below " + Vector3D.Dot(muzzle.Translation - p, muzzle.Up).ToString("0.00")
+                    + " speed " + g.Payload.Physics.LinearVelocity.Length().ToString("0.000")
+                    + (g.Hook == null ? "" : " hook-to-payload " + Vector3D.Distance(g.Hook.WorldMatrix.Translation, p).ToString("0.00"))
+                    + " spin " + g.Payload.Physics.AngularVelocity.Length().ToString("0.00");
+                // how far the rotor head has been pulled from where it sat on its stator
+                if (g.Stator != null && g.Stator.Top == null && g.JointRest >= 0)
+                {
+                    Log("ROTOR head gone from " + g.Name + "'s payload at t=" + (tick / 60.0).ToString("0.0") + "; stator integrity " + g.Stator.SlimBlock.Integrity.ToString("0") + " of " + g.Stator.SlimBlock.MaxIntegrity.ToString("0"));
+                    g.JointRest = -2;
+                }
+                if (g.Stator != null && g.Stator.Top != null)
+                {
+                    double joint = Vector3D.Distance(g.Stator.Top.WorldMatrix.Translation, g.Stator.WorldMatrix.Translation);
+                    if (g.JointRest < 0) g.JointRest = joint;
+                    IMySlimBlock head = g.Stator.Top.SlimBlock;
+                    line += " head integrity " + (head.Integrity / head.MaxIntegrity).ToString("0.00");
+                    line += " joint " + (joint - g.JointRest).ToString("0.000") + " m head " + (g.Stator.Top.CubeGrid.Physics == null ? "?" : g.Stator.Top.CubeGrid.Physics.Mass.ToString("0")) + " kg";
+                }
+            }
+            Log(line);
         }
 
         static string Fmt(Vector3D v) { return "(" + v.X.ToString("0.00") + ", " + v.Y.ToString("0.00") + ", " + v.Z.ToString("0.00") + ")"; }
@@ -285,6 +425,7 @@ namespace GrappleProbe
 
         void Sample(Gun g)
         {
+            if (g.Block.MarkedForClose || g.Block.Closed) return;
             FindHook(g);
             IMyGunObject<MyGunBase> gb = g.Block as IMyGunObject<MyGunBase>;
             string hookAt = g.Hook == null ? "none" : (g.Hook.WorldMatrix.Translation.X > 1e30 ? "hidden" : Vector3D.Distance(g.Hook.WorldMatrix.Translation, g.Block.WorldMatrix.Translation).ToString("0.0") + "m from gun");

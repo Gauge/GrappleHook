@@ -56,6 +56,27 @@ SMALL_RIG = [
     ('MyObjectBuilder_SmallMissileLauncher', 'GrappleHookFixedSmall', (6, 2, 0), ''),
 ]
 
+# The air rig, AIR_HEIGHT m above the large rig and AIR_OFFSET m to its right, for the rope physics: static, with nothing below it
+# but air, so a payload the probe hangs on a rope swings free. A large fixed launcher sits on an
+# armour platform three cells back from its front edge, so a payload hanging off the rope pulls it
+# over that edge (rope wrapping); a second one fires out over the far side at nothing, for the
+# hook's range, drop and return. The probe spawns the payloads in front of them.
+AIR_HEIGHT = 150
+AIR_OFFSET = 60
+AIR_RIG = [('MyObjectBuilder_CubeBlock', 'LargeBlockArmorBlock', (x, 0, z), '') for x in range(-1, 6) for z in range(-3, 2)]
+AIR_RIG += [
+    ('MyObjectBuilder_SmallMissileLauncher', 'GrappleHookFixedLarge', (0, 1, 0), ''),
+    ('MyObjectBuilder_BatteryBlock', 'LargeBlockBatteryBlock', (2, 1, 0),
+     '\n          <CurrentStoredPower>3</CurrentStoredPower>\n          <ProducerEnabled>true</ProducerEnabled>'),
+    ('MyObjectBuilder_SmallMissileLauncher', 'GrappleHookFixedLarge', (4, 1, -3), ''),
+]
+# The small grid air rig, 20 m to the right: a small launcher on its battery, for a light payload.
+AIR_SMALL_RIG = [
+    ('MyObjectBuilder_BatteryBlock', 'SmallBlockBatteryBlock', (0, 0, 1),
+     '\n          <CurrentStoredPower>1</CurrentStoredPower>\n          <ProducerEnabled>true</ProducerEnabled>'),
+    ('MyObjectBuilder_SmallMissileLauncher', 'GrappleHookFixedSmall', (1, 2, 0), ''),
+]
+
 # Minutes to move the world's clock on (LT_SUN_SHIFT): the sun turns with ElapsedGameTime, so half
 # a day (SunRotationIntervalMinutes / 2) swaps night for day at the rig, for screenshots.
 SUN_SHIFT = float(os.environ.get('LT_SUN_SHIFT', '0'))
@@ -148,7 +169,12 @@ def rig(sector):
     local = tuple(2.5 * c - 1.0 for c in SMALL_CELL)
     small_at = tuple(a + local[0] * r + local[1] * u - local[2] * f for a, r, u, f in zip(at, right, up, fwd))
     small = grid(frame, small_at, 'GrappleRigSmall', 'Small', SMALL_RIG, ids)
-    return large + small
+    # off to the side, so what the probe drops from it falls clear of the ground rig
+    air_at = tuple(a + AIR_HEIGHT * u + AIR_OFFSET * r for a, u, r in zip(at, up, right))
+    air = grid(frame, air_at, 'GrappleRigAir', 'Large', AIR_RIG, ids)
+    air_small_at = tuple(a + 20 * r for a, r in zip(air_at, right))
+    air_small = grid(frame, air_small_at, 'GrappleRigAirSmall', 'Small', AIR_SMALL_RIG, ids)
+    return large + small + air + air_small
 
 
 def build(src, dst, name):
@@ -178,7 +204,7 @@ def build(src, dst, name):
             if m:  # TimeSpan ticks, 10 million a second
                 text = setting(text, 'ElapsedGameTime', str(int(m.group(1)) + int(SUN_SHIFT * 60 * 10 ** 7)))
         open(os.path.join(dst, f), 'w', encoding='utf-8').write(text)
-    print('built %s: %d grids dropped, GrappleRig added with %d blocks, GrappleRigSmall with %d, mods %s' % (dst, dropped, len(RIG), len(SMALL_RIG), ','.join([MOD] + EXTRA_MODS)))
+    print('built %s: %d grids dropped, GrappleRig added with %d blocks, GrappleRigSmall with %d, the air rigs with %d and %d, mods %s' % (dst, dropped, len(RIG), len(SMALL_RIG), len(AIR_RIG), len(AIR_SMALL_RIG), ','.join([MOD] + EXTRA_MODS)))
 
 
 def main():
