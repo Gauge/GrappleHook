@@ -1,0 +1,9 @@
+<Solution>
+  <!--
+    The mod project is here so that one build command covers everything the game will compile.
+    It is not a test project and runs nothing.
+  -->
+  <Project Path="../GrappleHook/GrappleHook.csproj" />
+  <Project Path="GrappleHook.Core/GrappleHook.Core.csproj" />
+  <Project Path="GrappleHook.Tests/GrappleHook.Tests.csproj" />
+</Solution>

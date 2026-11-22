@@ -1,0 +1,375 @@
+{
+  "Atlas1": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Atlas1_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Atlas1_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\Atlas1_add.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\Atlas1_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "Atlas1Colorable": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Atlas1Colorable_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Atlas1Colorable_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\Atlas1Colorable_add.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\Atlas1_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "Atlas2": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Atlas2_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Atlas2_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\Atlas2_add.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\Atlas2_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "Atlas3_Chrome": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Atlas3_Chrome_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Atlas3_Chrome_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\Atlas3_Chrome_add.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\Atlas3_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "Atlas3_Colorable": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Atlas3_Colorable_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Atlas3_Colorable_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\Atlas3_Colorable_add.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\Atlas3_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "Atlas3_Darker": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Atlas3_Darker_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Atlas3_Darker_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\Atlas3_Darker_add.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\Atlas3_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "Atlas4_Darker": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Atlas4_Darker_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Atlas4_Colorable_ng.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\Atlas4_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Barrels.mwm"
+  },
+  "BlackMetal": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\BlackMetal_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\BlackMetal_ng.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Barrels.mwm"
+  },
+  "ButtonsAtlas_Colorable": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\ButtonsAtlas_Colorable_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\ButtonsAtlas_Colorable_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\ButtonsAtlas_Colorable_add.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\ButtonsAtlas_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Base.mwm"
+  },
+  "Chrome": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Chrome_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Chrome_ng.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Barrels.mwm"
+  },
+  "Construction": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Chrome_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Chrome_ng.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "MissileTurretConstruction_1.mwm"
+  },
+  "Conveyor": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Conveyor_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Conveyor_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\Conveyor_add.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "Emissive": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\EmissiveAtlas_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\EmissiveAtlas_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\EmissiveAtlas_add.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Base.mwm"
+  },
+  "GenericGlass": {
+    "technique": "GLASS",
+    "textures": {},
+    "userData": {},
+    "glassCW": "",
+    "glassCCW": "",
+    "glassSmoothNormals": true,
+    "source": "Harpoon_Base.mwm"
+  },
+  "Metal_Dull": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Aluminium_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\AluminiumDull_ng.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "Metal_Shiny": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Aluminium_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\AluminiumGlossy_ng.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Barrels.mwm"
+  },
+  "MetalMilitary": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\MetalMilitary_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\MetalMilitary_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\MetalMilitary_add.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Barrels.mwm"
+  },
+  "MetalMilitary_Scratched": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\MetalMilitary_scratched_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\MetalMilitary_scratched_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\MetalMilitary_scratched_add.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Barrels.mwm"
+  },
+  "PaintedMetal_Colorable": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_add.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Barrels.mwm"
+  },
+  "PaintedMetal_Colorable.005": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_add.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "PaintedMetal_Darker": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\PaintedMetalDarker_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_ng.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "PaintedMetal_VeryDark": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\PaintedMetal_VeryDark_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_ng.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Base.mwm"
+  },
+  "PaintedMetal_Yellow": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\PaintedMetalYellow_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_ng.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "PaintedMetalScratched_Colorable": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_add.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "MissileTurret.mwm"
+  },
+  "PaintedMetalScratched_Yellow": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\PaintedMetalYellow_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\PaintedMetalColorable_ng.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "MissileTurret.mwm"
+  },
+  "PanelingColorable": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Decals_Atlas_A_01_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Decals_Atlas_A_01_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\Decals_Atlas_A_01_add.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\Decals_Atlas_A_01_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "HarpoonTurret.mwm"
+  },
+  "PanelingDarker": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Decals_Atlas_A_02_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Decals_Atlas_A_01_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\Decals_Atlas_A_02_add.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\Decals_Atlas_A_01_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Base.mwm"
+  },
+  "Rubber": {
+    "technique": "MESH",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\Rubber_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\Rubber_ng.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Base.mwm"
+  },
+  "TextAtlas": {
+    "technique": "DECAL_CUTOUT",
+    "textures": {
+      "ColorMetalTexture": "Textures\\Models\\Cubes\\TextAtlas_cm.dds",
+      "NormalGlossTexture": "Textures\\Models\\Cubes\\TextAtlas_ng.dds",
+      "AddMapsTexture": "Textures\\Models\\Cubes\\TextAtlas_add.dds",
+      "AlphamaskTexture": "Textures\\Models\\Cubes\\TextAtlas_alphamask.dds"
+    },
+    "userData": {},
+    "glassCW": null,
+    "glassCCW": null,
+    "glassSmoothNormals": false,
+    "source": "Harpoon_Base.mwm"
+  }
+}

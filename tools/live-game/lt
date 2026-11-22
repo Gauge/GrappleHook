@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# lt: boot Space Engineers headless into the GrappleLive test world and report what the game made of
+# the mod. The game runs in a headless gamescope (live.sh); nothing appears on screen, and the game's
+# offline user plays, so the player's own saves and LastSession.sbl are never touched.
+# Adapted from Thermodynamics/tools/live-game/lt, without its command bridge; see README.md.
+set -u
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export LIVE_PULSAR="${LT_PULSAR:-0}" LIVE_SETTLE=0
+repo="$(cd "$here/../.." && pwd)"
+state="$repo/out/live-game"; mkdir -p "$state"
+live="$here/live.sh"
+ini() { sed -n "s/^$1=//p" "$repo/GrappleHook/mdk.local.ini" 2>/dev/null | tr -d '\r' | head -1; }
+mods="${LIVE_MODS:-$(ini output)}"
+roaming="$(dirname "$mods")"
+saves="${LT_SAVES:-$(dirname "$(ls -d "$roaming"/Saves/*/ToastyBugs 2>/dev/null | head -1)")}"
+source_world="${LT_SOURCE:-$saves/ToastyBugs}"
+# With Steam closed a bare launch plays as the offline user, whose saves are a folder of their own.
+# With Steam running it signs in as the Steam user and Continue Game reads that user's
+# LastSession.sbl, so the test world sits beside the player's (as Thermodynamics' ThermoLive does),
+# LastSession.sbl is swapped for the load and put back straight after. LT_PROFILE overrides.
+if [ -n "${LT_PROFILE:-}" ]; then profile="$LT_PROFILE"
+elif pgrep -x steam >/dev/null || pgrep -x steamwebhelper >/dev/null; then profile="$saves"
+else profile="$roaming/Saves/${LT_OFFLINE_ID:-1234567891011}"; fi
+world="$profile/GrappleLive"
+kept="$state/LastSession.user.sbl"
+
+# LT_MOD=workshop tests the published Workshop copy instead of this repository's build: the world
+# loads Mods/LT.3280424480, a link into the workshop cache, and nothing is deployed.
+workshop_id=3280424480
+# LT_MOD=workshop-debug loads a copy of it with only Tools.DebugMode switched on, so the mod logs
+# its own state changes.
+case "${LT_MOD:-local}" in
+  workshop) export LT_MOD_FOLDER="LT.$workshop_id" ;;
+  workshop-debug) export LT_MOD_FOLDER="LT.$workshop_id.debug" ;;
+  none) export LT_MOD_FOLDER= ;;   # the same world with no GrappleHook at all: a control run
+  *) export LT_MOD_FOLDER=GrappleHook ;;
+esac
+
+# LT_PROBE=1 also loads GrappleProbe (probe/), which fires the turret and logs what it sees.
+if [ "${LT_PROBE:-0}" = 1 ]; then export LT_EXTRA_MODS=GrappleProbe; else export LT_EXTRA_MODS=; fi
+deploy_probe() {
+  [ "${LT_PROBE:-0}" = 1 ] || return 0
+  rm -rf "${mods:?}/GrappleProbe" && mkdir -p "$mods/GrappleProbe" && cp -r "$here/probe/Data" "$mods/GrappleProbe/"
+}
+
+running() { [ -n "$(bash "$live" pid)" ]; }
+newest_log() { ls -t "$roaming"/SpaceEngineers_*.log 2>/dev/null | head -1; }
+
+# Continue Game loads the offline profile's LastSession.sbl; point it at the test world.
+point_last() {
+  local last="$profile/LastSession.sbl" id; id=$(basename "$profile")
+  [ -f "$last" ] || { echo "ERR no $last to point at the test world; run the game once in this profile"; return 1; }
+  [ -f "$kept" ] || cp "$last" "$kept"
+  sed -e "s|<Path>[^<]*</Path>|<Path>C:\\\\users\\\\steamuser\\\\AppData\\\\Roaming\\\\SpaceEngineers\\\\Saves\\\\$id\\\\GrappleLive</Path>|" \
+      -e "s|<GameName>[^<]*</GameName>|<GameName>GrappleLive</GameName>|" \
+      -e "s|<RelativePath>[^<]*</RelativePath>|<RelativePath>GrappleLive</RelativePath>|" "$last" > "$last.tmp" && mv "$last.tmp" "$last"
+}
+
+restore_last() { [ -f "$kept" ] && cp "$kept" "$profile/LastSession.sbl" && rm -f "$kept"; return 0; }
+
+# The one world this harness may run. Anything else is the player's: stop before it can be saved.
+guard() {
+  local log; log=$(newest_log)
+  grep -q "Loading session: .*\\\\$(basename "$profile")\\\\GrappleLive" "$log" && return 0
+  bash "$live" stop >/dev/null 2>&1; restore_last
+  echo "ERR stopped: the game loaded $(grep -o 'Loading session: .*' "$log" | tail -1 | cut -c18-) instead of the test world"
+  return 1
+}
+
+# Compile failures, the mod's own errors and anything thrown from its scripts, deduplicated.
+errors() {
+  local log; log=$(newest_log); [ -n "$log" ] || return 0
+  grep -E "Compilation of .* failed|error CS[0-9]+|\[GrappleHook\].*(rror|xception)|-> +Exception: System\.|^ +at (GrappleHook|SENetworkAPI)\.|MyInitializer.OnCrash|Script.*has thrown|MOD_ERROR|NetworkAPI\] _ERROR_" "$log" \
+    | sed -E 's/^[0-9-]+ [0-9:.]+ - Thread: +[0-9]+ -> +//' | cut -c1-220 | awk '!seen[$0]++' | head -"${1:-12}"
+}
+
+# Every line the mod or its network layer wrote this session.
+modlog() {
+  local log; log=$(newest_log); [ -n "$log" ] || return 0
+  grep -E "GrappleHook|NetworkAPI" "$log" | sed -E 's/^[0-9-]+ [0-9:.]+ - Thread: +[0-9]+ -> +//' | cut -c1-220 | awk '!seen[$0]++' | head -"${1:-40}"
+}
+
+world() {
+  [ -d "$source_world" ] || { echo "ERR no source world $source_world (set LT_SOURCE)"; return 1; }
+  if [ -n "$LT_MOD_FOLDER" ] && [ "$LT_MOD_FOLDER" != GrappleHook ]; then
+    local cache; cache="$(dirname "$(dirname "$mods")")"; cache="${cache%/compatdata/*}/workshop/content/244850/$workshop_id"
+    [ -d "$cache" ] || { echo "ERR workshop item $workshop_id is not downloaded"; return 1; }
+    if [ "${LT_MOD:-}" = workshop-debug ]; then
+      rm -rf "${mods:?}/$LT_MOD_FOLDER" && cp -r "$cache" "$mods/$LT_MOD_FOLDER" \
+        && sed -i 's/Tools.DebugMode = false;/Tools.DebugMode = true;/' "$mods/$LT_MOD_FOLDER/Data/Scripts/hook/Core.cs" || return 1
+    else
+      [ -e "$mods/$LT_MOD_FOLDER" ] || ln -s "$cache" "$mods/$LT_MOD_FOLDER"
+    fi
+  fi
+  python3 -I "$here/world.py" build "$source_world" "$world"
+}
+
+# Main menu, Continue Game, and the one notice a fresh world raises: its file format is "outdated"
+# until the game has written the binary copy, and the load waits on that message box's OK.
+# The session path is checked the moment the game names it, long before anything could be saved:
+# a wrong world stops the game here (exit 2). Continue Game's height is LIVE_CONTINUE_Y, in 1/10000
+# of the window; update 1.211 added a second row of DLC badges and moved it from 4528 to 5139.
+load() {
+  local log="" i answered=0
+  for i in $(seq 1 120); do
+    log=$(newest_log); [ "$log" -nt "$state/up.stamp" ] && grep -q "MyConfig.Save() - END" "$log" && break; sleep 1
+  done
+  sleep 4
+  bash "$live" click $(( ${LIVE_WIDTH:-2560} / 10 )) $(( ${LIVE_HEIGHT:-1440} * ${LIVE_CONTINUE_Y:-5139} / 10000 ))
+  for i in $(seq 1 240); do
+    if grep -q "Loading session: " "$log"; then guard || return 2; fi
+    grep -q "Session loaded" "$log" && return 0
+    if grep -q "MyLoadingNeedXMLException" "$log" && [ "$(grep -c "MyConfig.Save() - END" "$log")" -ge 2 ] \
+        && (( answered < 3 )) && (( i % 10 == 0 )); then
+      sleep 1; bash "$live" key Return; answered=$((answered + 1))
+    fi
+    running || return 1; sleep 1
+  done
+  return 1
+}
+
+up() {
+  if running; then echo "already up: $(newest_log)"; return; fi
+  [ -d "$world" ] || world >/dev/null || return 1
+  local out; [ "$LT_MOD_FOLDER" != GrappleHook ] || out=$(bash "$live" deploy 2>&1) || { echo "$out" | grep -E "error" | sed -E 's| \[/.*||' | sort -u | head -10; return 1; }
+  deploy_probe || return 1
+  point_last || return 1
+  local t0; t0=$(date +%s); touch "$state/up.stamp"
+  bash "$live" start >/dev/null || { restore_last; echo "ERR start failed: $state/gamescope.log"; return 1; }
+  load; local loaded=$?
+  # A game left at the menu must not be handed the player's LastSession.sbl back: stop it first.
+  if [ "$loaded" != 0 ]; then
+    bash "$live" stop >/dev/null 2>&1; restore_last
+    [ "$loaded" = 2 ] || echo "ERR world did not load ($(( $(date +%s) - t0 ))s), game stopped: $(newest_log)"
+    errors 8; return 1
+  fi
+  restore_last
+  sleep "${LT_SETTLE:-10}"
+  echo "up $(( $(date +%s) - t0 ))s: $(newest_log)"
+  errors 8
+}
+
+down() { bash "$live" stop >/dev/null 2>&1; restore_last; echo "down"; }
+
+case "${1:-}" in
+  up) up ;;
+  down) down ;;
+  reload) down >/dev/null; up ;;
+  world) world ;;
+  errors) errors "${2:-12}" ;;
+  log) modlog "${2:-40}" ;;
+  shot) bash "$live" snap "${2:-shot}" "${3:-0.35}" ;;
+  say) bash "$live" say "$2" && echo "ok said" ;;
+  ""|help|-h) sed -n '/^## Commands/,/^## [A-Z]/p' "$here/README.md" | head -40 ;;
+  *) echo "usage: lt up|down|reload|world|errors [n]|log [n]|shot [name] [scale]|say <text>" >&2; exit 2 ;;
+esac

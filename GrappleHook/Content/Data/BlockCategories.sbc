@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+	<CategoryClasses>
+		<!--
+			Adds the fixed grapple launchers to the game's ship weapons category, which is what a
+			cockpit's toolbar screen lists as selectable weapon groups. Categories with the same
+			Name merge, so this adds to the vanilla list rather than replacing it.
+		-->
+		<Category xsi:type="MyObjectBuilder_GuiBlockCategoryDefinition">
+			<Id>
+				<TypeId>GuiBlockCategoryDefinition</TypeId>
+				<SubtypeId>GrappleHookShipWeapons</SubtypeId>
+			</Id>
+			<DisplayName>DisplayName_Category_ShipWeapons</DisplayName>
+			<Name>ShipWeapons</Name>
+			<SearchBlocks>false</SearchBlocks>
+			<IsShipCategory>true</IsShipCategory>
+			<IsBlockCategory>false</IsBlockCategory>
+			<IsToolCategory>true</IsToolCategory>
+			<ItemIds>
+				<string>SmallMissileLauncher/GrappleHookFixedLarge</string>
+				<string>SmallMissileLauncher/GrappleHookFixedSmall</string>
+			</ItemIds>
+		</Category>
+	</CategoryClasses>
+</Definitions>

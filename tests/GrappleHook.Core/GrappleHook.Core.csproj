@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The pure part of the mod. Every source file lives under GrappleHook/Core so that
+    Space Engineers compiles it as part of the mod; this project links the same files so they
+    can be built and tested outside the game.
+
+    LangVersion 6 is deliberate: it is what the in-game script compiler accepts, so anything
+    that builds here builds in game.
+  -->
+
+  <PropertyGroup>
+    <AssemblyName>GrappleHook.Core</AssemblyName>
+    <RootNamespace>GrappleHook.Core</RootNamespace>
+    <LangVersion>6</LangVersion>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(CoreSourceRoot)**/*.cs" LinkBase="Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="VRage.Math">
+      <HintPath>$(SEBinPath)/VRage.Math.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

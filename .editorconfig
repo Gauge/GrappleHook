@@ -1,0 +1,4 @@
+# SENetworkAPI is vendored and replaced wholesale from the upstream repository.
+# Keep its legacy message-handler warnings scoped to the upstream source files.
+[GrappleHook/SENetworkAPI/{Network,SessionTools}.cs]
+dotnet_diagnostic.CS0618.severity = none

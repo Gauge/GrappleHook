@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+	<CubeBlocks>
+		<Definition xsi:type="MyObjectBuilder_LargeTurretBaseDefinition">
+			<Id>
+				<TypeId>LargeMissileTurret</TypeId>
+				<SubtypeId>GrappleHookTurretLarge</SubtypeId>
+			</Id>
+			<DisplayName>Grapple Hook Turret</DisplayName>
+			<Icon>Textures\GUI\Icons\Cubes\HarpoonTurret.dds</Icon>
+			<Description>Produces a nope rope that will yeet your enemies and sometimes yourself.</Description>
+			<CubeSize>Large</CubeSize>
+			<GuiVisible>false</GuiVisible>
+			<PlaceDecals>false</PlaceDecals>
+			<BlockTopology>TriangleMesh</BlockTopology>
+			<Size x="1" y="1" z="1" />
+			<ModelOffset x="0" y="0" z="0" />
+			<Model>Models\Cubes\Large\HarpoonTurret.mwm</Model>
+			<UseModelIntersection>true</UseModelIntersection>
+			<Components>
+				<Component Subtype="SteelPlate" Count="150" />
+				<Component Subtype="Construction" Count="100" />
+				<Component Subtype="MetalGrid" Count="50" />
+				<Component Subtype="LargeTube" Count="40" />
+				<Component Subtype="Motor" Count="30" />
+				<Component Subtype="Computer" Count="20" />
+				<Component Subtype="Construction" Count="200" />
+				<Component Subtype="SteelPlate" Count="400" />
+			</Components>
+			<CriticalComponent Subtype="Computer" Index="0" />
+			<MountPoints>
+				<MountPoint Side="Bottom" StartX="0" StartY="0" EndX="1" EndY="1" />
+			</MountPoints>
+			<BuildProgressModels>
+				<Model BuildPercentUpperBound="0.33" File="Models\Cubes\Large\HarpoonTurret_BS1.mwm" />
+				<Model BuildPercentUpperBound="0.66" File="Models\Cubes\Large\HarpoonTurret_BS2.mwm" />
+				<Model BuildPercentUpperBound="1.00" File="Models\Cubes\Large\HarpoonTurret_BS3.mwm" />
+			</BuildProgressModels>
+			<VoxelPlacement>
+				<!--Possible settings Both,InVoxel,OutsideVoxel,Volumetric. If volumetric set than MaxAllowed and MinAllowed will be used.-->
+				<StaticMode>
+					<PlacementMode>OutsideVoxel</PlacementMode>
+					<MaxAllowed>0.2</MaxAllowed>
+					<MinAllowed>0</MinAllowed>
+				</StaticMode>
+				<DynamicMode>
+					<PlacementMode>OutsideVoxel</PlacementMode>
+					<MaxAllowed>0.2</MaxAllowed>
+					<MinAllowed>0.01</MinAllowed>
+				</DynamicMode>
+			</VoxelPlacement>
+			<BlockPairName>GrappleHook</BlockPairName>
+			<MirroringY>Z</MirroringY>
+			<MirroringZ>Y</MirroringZ>
+			<EdgeType>Light</EdgeType>
+			<BuildTimeSeconds>100</BuildTimeSeconds>
+			<OverlayTexture>Textures\GUI\Screens\turret_overlay.dds</OverlayTexture>
+			<WeaponDefinitionId Subtype="GrappleHookTurret" />
+			<EnabledTargetingOptions>LargeShips Stations Enemies</EnabledTargetingOptions>
+			<HiddenTargetingOptions>Players Asteroids Missiles Friends</HiddenTargetingOptions>
+			<InventoryMaxVolume>0.6</InventoryMaxVolume>
+			<DamageEffectName>Damage_WeapExpl_Damaged</DamageEffectName>
+			<DamagedSound>ParticleWeapExpl</DamagedSound>
+			<ResourceSinkGroup>Defense</ResourceSinkGroup>
+			<MinElevationDegrees>-15</MinElevationDegrees>
+			<MaxElevationDegrees>70</MaxElevationDegrees>
+			<MinAzimuthDegrees>-180</MinAzimuthDegrees>
+			<MaxAzimuthDegrees>180</MaxAzimuthDegrees>
+			<AiEnabled>false</AiEnabled>
+			<IdleRotation>false</IdleRotation>
+			<MaxRangeMeters>0</MaxRangeMeters>
+			<RotationSpeed>0.0005</RotationSpeed>
+			<ElevationSpeed>0.0005 </ElevationSpeed>
+			<EmissiveColorPreset>Default</EmissiveColorPreset>
+			<MinFov>0.1</MinFov>
+			<MaxFov>1.04719755</MaxFov>
+			<DestroyEffect>BlockDestroyedExplosion_Large</DestroyEffect>
+			<DestroySound>WepSmallWarheadExpl</DestroySound>
+			<PCU>275</PCU>
+			<IsAirTight>false</IsAirTight>
+			<AmmoPullAmountPerTick>2</AmmoPullAmountPerTick>
+			<InventoryFillFactorMin>.25</InventoryFillFactorMin>
+			<InventoryFillFactorMax>.5</InventoryFillFactorMax>
+			<TieredUpdateTimes>
+				<unsignedInt>10</unsignedInt>
+				<unsignedInt>0</unsignedInt>
+			</TieredUpdateTimes>
+			<TargetingGroups>
+				<string>Weapons</string>
+			</TargetingGroups>
+			<UpCameraOffset>1.0</UpCameraOffset>
+			<ForwardCameraOffset>0.5</ForwardCameraOffset>
+		</Definition>
+		<!--
+			The small grid turret: 5x5x5 small blocks, the vanilla small turret footprint, with its
+			own models (tools/model/designs/grapple_turret_small.py). Paired with the large turret,
+			so the size switch swaps between them. It fires the same hook as the large turret, from a
+			launcher of the same size.
+		-->
+		<Definition xsi:type="MyObjectBuilder_LargeTurretBaseDefinition">
+			<Id>
+				<TypeId>LargeMissileTurret</TypeId>
+				<SubtypeId>GrappleHookTurretSmall</SubtypeId>
+			</Id>
+			<DisplayName>Grapple Hook Turret</DisplayName>
+			<Icon>Textures\GUI\Icons\Cubes\GrappleTurretSmall.dds</Icon>
+			<Description>Produces a nope rope that will yeet your enemies and sometimes yourself.</Description>
+			<CubeSize>Small</CubeSize>
+			<GuiVisible>false</GuiVisible>
+			<PlaceDecals>false</PlaceDecals>
+			<BlockTopology>TriangleMesh</BlockTopology>
+			<Size x="5" y="5" z="5" />
+			<Center x="2" y="0" z="2" />
+			<ModelOffset x="0" y="0" z="0" />
+			<Model>Models\Cubes\Small\GrappleTurretSmall.mwm</Model>
+			<UseModelIntersection>true</UseModelIntersection>
+			<Components>
+				<Component Subtype="SteelPlate" Count="8" />
+				<Component Subtype="Construction" Count="30" />
+				<Component Subtype="MetalGrid" Count="6" />
+				<Component Subtype="LargeTube" Count="3" />
+				<Component Subtype="Motor" Count="8" />
+				<Component Subtype="Computer" Count="10" />
+				<Component Subtype="Construction" Count="10" />
+				<Component Subtype="SteelPlate" Count="12" />
+			</Components>
+			<CriticalComponent Subtype="Computer" Index="0" />
+			<MountPoints>
+				<MountPoint Side="Bottom" StartX="0" StartY="0" EndX="5" EndY="5" Default="true" />
+				<MountPoint Side="Right" StartX="1" StartY="0" EndX="4" EndY="1" />
+				<MountPoint Side="Back" StartX="1" StartY="0" EndX="4" EndY="1" />
+				<MountPoint Side="Left" StartX="1" StartY="0" EndX="4" EndY="1" />
+				<MountPoint Side="Front" StartX="1" StartY="0" EndX="4" EndY="1" />
+			</MountPoints>
+			<BuildProgressModels>
+				<Model BuildPercentUpperBound="0.33" File="Models\Cubes\Small\GrappleTurretSmall_BS1.mwm" />
+				<Model BuildPercentUpperBound="0.66" File="Models\Cubes\Small\GrappleTurretSmall_BS2.mwm" />
+				<Model BuildPercentUpperBound="1.00" File="Models\Cubes\Small\GrappleTurretSmall_BS3.mwm" />
+			</BuildProgressModels>
+			<VoxelPlacement>
+				<StaticMode>
+					<PlacementMode>OutsideVoxel</PlacementMode>
+					<MaxAllowed>0.2</MaxAllowed>
+					<MinAllowed>0</MinAllowed>
+				</StaticMode>
+				<DynamicMode>
+					<PlacementMode>OutsideVoxel</PlacementMode>
+					<MaxAllowed>0.2</MaxAllowed>
+					<MinAllowed>0.01</MinAllowed>
+				</DynamicMode>
+			</VoxelPlacement>
+			<BlockPairName>GrappleHook</BlockPairName>
+			<MirroringY>Z</MirroringY>
+			<MirroringZ>Y</MirroringZ>
+			<EdgeType>Light</EdgeType>
+			<BuildTimeSeconds>25</BuildTimeSeconds>
+			<OverlayTexture>Textures\GUI\Screens\turret_overlay.dds</OverlayTexture>
+			<WeaponDefinitionId Subtype="GrappleHookTurret" />
+			<EnabledTargetingOptions>LargeShips Stations Enemies</EnabledTargetingOptions>
+			<HiddenTargetingOptions>Players Asteroids Missiles Friends</HiddenTargetingOptions>
+			<InventoryMaxVolume>0.3</InventoryMaxVolume>
+			<DamageEffectName>Damage_WeapExpl_Damaged</DamageEffectName>
+			<DamagedSound>ParticleWeapExpl</DamagedSound>
+			<ResourceSinkGroup>Defense</ResourceSinkGroup>
+			<MinElevationDegrees>-10</MinElevationDegrees>
+			<MaxElevationDegrees>60</MaxElevationDegrees>
+			<MinAzimuthDegrees>-180</MinAzimuthDegrees>
+			<MaxAzimuthDegrees>180</MaxAzimuthDegrees>
+			<AiEnabled>false</AiEnabled>
+			<IdleRotation>false</IdleRotation>
+			<MaxRangeMeters>0</MaxRangeMeters>
+			<RotationSpeed>0.0008</RotationSpeed>
+			<ElevationSpeed>0.0008</ElevationSpeed>
+			<EmissiveColorPreset>Default</EmissiveColorPreset>
+			<MinFov>0.1</MinFov>
+			<MaxFov>1.04719755</MaxFov>
+			<DestroyEffect>BlockDestroyedExplosion_Small</DestroyEffect>
+			<DestroySound>WepSmallWarheadExpl</DestroySound>
+			<PCU>275</PCU>
+			<IsAirTight>false</IsAirTight>
+			<AmmoPullAmountPerTick>1</AmmoPullAmountPerTick>
+			<InventoryFillFactorMin>.34</InventoryFillFactorMin>
+			<InventoryFillFactorMax>.67</InventoryFillFactorMax>
+			<TieredUpdateTimes>
+				<unsignedInt>10</unsignedInt>
+				<unsignedInt>0</unsignedInt>
+			</TieredUpdateTimes>
+			<TargetingGroups>
+				<string>Weapons</string>
+			</TargetingGroups>
+			<UpCameraOffset>0.3</UpCameraOffset>
+			<ForwardCameraOffset>0.2</ForwardCameraOffset>
+		</Definition>
+		<!--
+			The fixed variants. Same weapon, no traverse: they fire along the block's forward
+			axis and are aimed by turning the ship. Launch tubes sized like the vanilla fixed
+			rocket launchers (1x1x2 large, 1x1x4 small), with their own models
+			(tools/model/designs/grapple_fixed.py); each model's muzzle_projectile_001 dummy is
+			where the hook's tail rests in the tube.
+		-->
+		<Definition xsi:type="MyObjectBuilder_WeaponBlockDefinition">
+			<Id>
+				<TypeId>SmallMissileLauncher</TypeId>
+				<SubtypeId>GrappleHookFixedLarge</SubtypeId>
+			</Id>
+			<DisplayName>Grapple Hook Launcher</DisplayName>
+			<Icon>Textures\GUI\Icons\Cubes\GrappleFixedLarge.dds</Icon>
+			<Description>A grapple hook on a fixed mount. Point the ship, not the gun.</Description>
+			<CubeSize>Large</CubeSize>
+			<GuiVisible>false</GuiVisible>
+			<PlaceDecals>false</PlaceDecals>
+			<BlockTopology>TriangleMesh</BlockTopology>
+			<Size x="1" y="1" z="2" />
+			<Center x="0" y="0" z="1" />
+			<ModelOffset x="0" y="0" z="0" />
+			<Model>Models\Cubes\Large\GrappleFixedLarge.mwm</Model>
+			<UseModelIntersection>true</UseModelIntersection>
+			<Components>
+				<Component Subtype="SteelPlate" Count="20" />
+				<Component Subtype="Construction" Count="10" />
+				<Component Subtype="MetalGrid" Count="30" />
+				<Component Subtype="LargeTube" Count="25" />
+				<Component Subtype="Motor" Count="10" />
+				<Component Subtype="Computer" Count="4" />
+				<Component Subtype="SteelPlate" Count="20" />
+			</Components>
+			<CriticalComponent Subtype="Computer" Index="0" />
+			<MountPoints>
+				<MountPoint Side="Back" StartX="0" StartY="0" EndX="1" EndY="1" Default="true" />
+				<MountPoint Side="Top" StartX="0" StartY="0" EndX="1" EndY="2" />
+				<MountPoint Side="Bottom" StartX="0" StartY="0" EndX="1" EndY="2" />
+				<MountPoint Side="Right" StartX="0" StartY="0" EndX="2" EndY="1" />
+				<MountPoint Side="Left" StartX="0" StartY="0" EndX="2" EndY="1" />
+			</MountPoints>
+			<BuildProgressModels>
+				<Model BuildPercentUpperBound="0.33" File="Models\Cubes\Large\GrappleFixedLarge_BS1.mwm" />
+				<Model BuildPercentUpperBound="0.66" File="Models\Cubes\Large\GrappleFixedLarge_BS2.mwm" />
+				<Model BuildPercentUpperBound="1.00" File="Models\Cubes\Large\GrappleFixedLarge_BS3.mwm" />
+			</BuildProgressModels>
+			<VoxelPlacement>
+				<StaticMode>
+					<PlacementMode>OutsideVoxel</PlacementMode>
+					<MaxAllowed>0.2</MaxAllowed>
+					<MinAllowed>0</MinAllowed>
+				</StaticMode>
+				<DynamicMode>
+					<PlacementMode>OutsideVoxel</PlacementMode>
+					<MaxAllowed>0.2</MaxAllowed>
+					<MinAllowed>0.01</MinAllowed>
+				</DynamicMode>
+			</VoxelPlacement>
+			<BlockPairName>GrappleHookFixed</BlockPairName>
+			<MirroringY>Z</MirroringY>
+			<MirroringZ>Y</MirroringZ>
+			<EdgeType>Light</EdgeType>
+			<BuildTimeSeconds>30</BuildTimeSeconds>
+			<WeaponDefinitionId Subtype="GrappleHookTurret" />
+			<InventoryMaxVolume>0.6</InventoryMaxVolume>
+			<DamageEffectName>Damage_WeapExpl_Damaged</DamageEffectName>
+			<DamagedSound>ParticleWeapExpl</DamagedSound>
+			<ResourceSinkGroup>Defense</ResourceSinkGroup>
+			<DestroyEffect>BlockDestroyedExplosion_Large</DestroyEffect>
+			<DestroySound>WepSmallWarheadExpl</DestroySound>
+			<PCU>275</PCU>
+			<IsAirTight>false</IsAirTight>
+			<TargetingGroups>
+				<string>Weapons</string>
+			</TargetingGroups>
+		</Definition>
+		<Definition xsi:type="MyObjectBuilder_WeaponBlockDefinition">
+			<Id>
+				<TypeId>SmallMissileLauncher</TypeId>
+				<SubtypeId>GrappleHookFixedSmall</SubtypeId>
+			</Id>
+			<DisplayName>Grapple Hook Launcher</DisplayName>
+			<Icon>Textures\GUI\Icons\Cubes\GrappleFixedSmall.dds</Icon>
+			<Description>A grapple hook on a fixed mount. Point the ship, not the gun.</Description>
+			<CubeSize>Small</CubeSize>
+			<GuiVisible>false</GuiVisible>
+			<PlaceDecals>false</PlaceDecals>
+			<BlockTopology>TriangleMesh</BlockTopology>
+			<Size x="1" y="1" z="4" />
+			<Center x="0" y="0" z="3" />
+			<ModelOffset x="0" y="0" z="0" />
+			<Model>Models\Cubes\Small\GrappleFixedSmall.mwm</Model>
+			<UseModelIntersection>true</UseModelIntersection>
+			<Components>
+				<Component Subtype="SteelPlate" Count="2" />
+				<Component Subtype="Construction" Count="3" />
+				<Component Subtype="MetalGrid" Count="1" />
+				<Component Subtype="LargeTube" Count="4" />
+				<Component Subtype="Motor" Count="2" />
+				<Component Subtype="Computer" Count="1" />
+				<Component Subtype="SteelPlate" Count="4" />
+			</Components>
+			<CriticalComponent Subtype="Computer" Index="0" />
+			<MountPoints>
+				<MountPoint Side="Back" StartX="0" StartY="0" EndX="1" EndY="1" Default="true" />
+				<MountPoint Side="Top" StartX="0" StartY="0" EndX="1" EndY="4" />
+				<MountPoint Side="Bottom" StartX="0" StartY="0" EndX="1" EndY="4" />
+				<MountPoint Side="Right" StartX="0" StartY="0" EndX="4" EndY="1" />
+				<MountPoint Side="Left" StartX="0" StartY="0" EndX="4" EndY="1" />
+			</MountPoints>
+			<BuildProgressModels>
+				<Model BuildPercentUpperBound="0.50" File="Models\Cubes\Small\GrappleFixedSmall_BS1.mwm" />
+				<Model BuildPercentUpperBound="1.00" File="Models\Cubes\Small\GrappleFixedSmall_BS2.mwm" />
+			</BuildProgressModels>
+			<VoxelPlacement>
+				<StaticMode>
+					<PlacementMode>OutsideVoxel</PlacementMode>
+					<MaxAllowed>0.2</MaxAllowed>
+					<MinAllowed>0</MinAllowed>
+				</StaticMode>
+				<DynamicMode>
+					<PlacementMode>OutsideVoxel</PlacementMode>
+					<MaxAllowed>0.2</MaxAllowed>
+					<MinAllowed>0.01</MinAllowed>
+				</DynamicMode>
+			</VoxelPlacement>
+			<BlockPairName>GrappleHookFixed</BlockPairName>
+			<MirroringY>Z</MirroringY>
+			<MirroringZ>Y</MirroringZ>
+			<EdgeType>Light</EdgeType>
+			<BuildTimeSeconds>15</BuildTimeSeconds>
+			<WeaponDefinitionId Subtype="GrappleHookTurret" />
+			<InventoryMaxVolume>0.2</InventoryMaxVolume>
+			<DamageEffectName>Damage_WeapExpl_Damaged</DamageEffectName>
+			<DamagedSound>ParticleWeapExpl</DamagedSound>
+			<ResourceSinkGroup>Defense</ResourceSinkGroup>
+			<DestroyEffect>BlockDestroyedExplosion_Small</DestroyEffect>
+			<DestroySound>WepSmallWarheadExpl</DestroySound>
+			<PCU>275</PCU>
+			<IsAirTight>false</IsAirTight>
+			<TargetingGroups>
+				<string>Weapons</string>
+			</TargetingGroups>
+		</Definition>
+	</CubeBlocks>
+</Definitions>

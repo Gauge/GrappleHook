@@ -1,0 +1,15 @@
+*.vs/
+*bin/
+*obj/
+*out/
+*Properties/
+*.user
+*.claude/
+.idea/
+TestResults/
+
+# Machine-specific MDK2 paths (game binaries, Mods output). mdk.ini is shared and stays.
+mdk.local.ini
+
+# Taken before the MDK2 restructure; lives beside the repo, listed here in case it is moved in.
+*.tar.gz

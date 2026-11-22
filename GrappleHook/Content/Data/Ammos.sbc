@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<Definitions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <Ammos>
+		<Ammo xsi:type="MyObjectBuilder_ProjectileAmmoDefinition">
+			<Id>
+				<TypeId>AmmoDefinition</TypeId>
+				<SubtypeId>GrappleHookAmmo</SubtypeId>
+			</Id>
+			<BasicProperties>
+				<DesiredSpeed>0</DesiredSpeed>
+				<SpeedVariance>0</SpeedVariance>
+				<MaxTrajectory>0</MaxTrajectory>
+				<BackkickForce>50000</BackkickForce>
+			</BasicProperties>
+			<ProjectileProperties>
+				<ProjectileHitImpulse>0</ProjectileHitImpulse>
+				<ProjectileMassDamage>0</ProjectileMassDamage>
+				<!--nice-->
+				<ProjectileHealthDamage>0</ProjectileHealthDamage>
+				<ProjectileTrailScale>0</ProjectileTrailScale>
+				<ProjectileTrailColor x="1" y="1" z="1" />
+				<ProjectileTrailProbability>0</ProjectileTrailProbability>
+				<ProjectileCount>0</ProjectileCount>
+			</ProjectileProperties>
+		</Ammo>
+    </Ammos>
+</Definitions>
