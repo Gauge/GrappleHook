@@ -7,12 +7,20 @@ using System.Collections.Generic;
 using VRage.Game;
 using VRage.Game.Components;
 using VRage.Game.Entity;
+using VRage.Game.ModAPI;
 using VRage.ModAPI;
 using VRage.Utils;
 
 namespace SENetworkAPI
 {
+	/// <summary>
+	/// Directions a property is allowed to travel. Enforced on send and receive.
+	/// </summary>
 	public enum TransferType { ServerToClient, ClientToServer, Both }
+	/// <summary>
+	/// Purpose of a property packet. Values are part of the wire format and
+	/// must not be reordered.
+	/// </summary>
 	public enum SyncType { Post, Fetch, Broadcast, None }
 
 	[ProtoContract]
@@ -28,6 +36,10 @@ namespace SENetworkAPI
 		public SyncType SyncType;
 	}
 
+	/// <summary>
+	/// Type independent part of a synced property: registration, addressing
+	/// and batching. See <see cref="NetSync{T}"/>.
+	/// </summary>
 	public abstract class NetSync
 	{
 		internal static Dictionary<MyEntity, List<NetSync>> PropertiesByEntity = new Dictionary<MyEntity, List<NetSync>>();
@@ -40,64 +52,560 @@ namespace SENetworkAPI
 			return generatorId++;
 		}
 
-		/// <summary>
-		/// The allowed network communication direction
-		/// </summary>
+		internal static void ClearRegistries()
+		{
+			lock (locker)
+			{
+				PropertiesByEntity.Clear();
+				PropertyById.Clear();
+				pending.Clear();
+				due.Clear();
+				pendingFetches.Clear();
+				dueFetches.Clear();
+				pendingAnswers.Clear();
+				dueAnswers.Clear();
+				pendingAnswerTargets.Clear();
+				dueAnswerTargets.Clear();
+				answersByTarget.Clear();
+				answerTargets.Clear();
+				groupIndices.Clear();
+				updateGroups.Clear();
+				batch.Clear();
+				flushScheduled = false;
+				generatorId = 1;
+			}
+		}
+
+		/// <summary>Directions this property is allowed to travel.</summary>
 		public TransferType TransferType { get; internal set; }
 
 		/// <summary>
-		/// The identity of this property
+		/// Address of this property. Declaration order for a property on an
+		/// entity, a generated number for one on a session component.
 		/// </summary>
 		public long Id { get; internal set; }
 
-		/// <summary>
-		/// Enables/Disables network traffic out when setting a value
-		/// </summary>
+		/// <summary>Fetches the current value from the server as soon as this side is ready.</summary>
 		public bool SyncOnLoad { get; internal set; }
 
-		/// <summary>
-		/// Limits sync updates to within sync distance
-		/// </summary>
+		/// <summary>Restricts updates to players within sync distance of the owning entity.</summary>
 		public bool LimitToSyncDistance { get; internal set; }
 
-		/// <summary>
-		/// the last recorded network traffic
-		/// </summary>
+		/// <summary>DateTime.Ticks of the last update received for this property.</summary>
 		public long LastMessageTimestamp { get; internal set; }
 
-		/// <summary>
-		/// Request the lastest value from the server
-		/// </summary>
+		internal MyEntity Entity;
+
+		internal bool Coalesced;
+
+		internal bool IsLossy;
+
+		internal bool IsDirty;
+
+		internal bool IsInFlush;
+
+		internal bool IsFetchPending;
+
+		/// <summary>Requests the current value from the server. No-op on a server.</summary>
 		public abstract void Fetch();
 
 		/// <summary>
-		/// Triggers after recieving a fetch request from clients
-		/// and allows you to modify this property before it is sent.
+		/// Raised before answering a fetch, so the value can be brought up to
+		/// date first. Provides the requesting steam id.
 		/// </summary>
 		public Action<ulong> BeforeFetchRequestResponse;
 
 		internal abstract void Push(SyncType type, ulong sendTo);
 
 		internal abstract void SetNetworkValue(byte[] data, ulong sender);
+
+		internal abstract SyncData BuildUpdate(SyncType syncType);
+
+		internal abstract SyncData BuildFetch();
+
+		internal abstract void RaiseFetchRequest(ulong sender);
+
+		internal const int MaxUpdatesPerPacket = 500;
+		internal const int ReliableBatchByteLimit = 16 * 1024;
+
+		private struct Destination : IEquatable<Destination>
+		{
+			internal MyEntity Entity;
+			internal bool Lossy;
+			public bool Equals(Destination other) { return Entity == other.Entity && Lossy == other.Lossy; }
+			public override bool Equals(object other) { return other is Destination && Equals((Destination)other); }
+			public override int GetHashCode() { return ((Entity == null ? 0 : Entity.GetHashCode()) * 397) ^ (Lossy ? 1 : 0); }
+		}
+
+		private static readonly Dictionary<Destination, int> groupIndices = new Dictionary<Destination, int>();
+		private static readonly List<List<NetSync>> updateGroups = new List<List<NetSync>>();
+
+		private static List<NetSync> pending = new List<NetSync>();
+		private static List<NetSync> due = new List<NetSync>();
+		private static readonly List<SyncData> batch = new List<SyncData>();
+		private static bool flushScheduled;
+
+		private static List<NetSync> pendingFetches = new List<NetSync>();
+		private static List<NetSync> dueFetches = new List<NetSync>();
+
+		private static List<NetSync> pendingAnswers = new List<NetSync>();
+		private static List<ulong> pendingAnswerTargets = new List<ulong>();
+		private static List<NetSync> dueAnswers = new List<NetSync>();
+		private static List<ulong> dueAnswerTargets = new List<ulong>();
+		private static readonly Dictionary<ulong, List<SyncData>> answersByTarget = new Dictionary<ulong, List<SyncData>>();
+		private static readonly List<ulong> answerTargets = new List<ulong>();
+
+		internal static void QueueForFlush(NetSync property)
+		{
+			bool schedule;
+
+			lock (locker)
+			{
+				if (property.IsDirty)
+				{
+					return;
+				}
+
+				property.IsDirty = true;
+				pending.Add(property);
+				schedule = ClaimFlush();
+			}
+
+			if (schedule)
+			{
+				MyAPIGateway.Utilities.InvokeOnGameThread(Flush, "SENetworkAPI");
+			}
+		}
+
+		internal static void QueueFetch(NetSync property)
+		{
+			bool schedule;
+
+			lock (locker)
+			{
+				if (property.IsFetchPending)
+				{
+					return;
+				}
+
+				property.IsFetchPending = true;
+				pendingFetches.Add(property);
+				schedule = ClaimFlush();
+			}
+
+			if (schedule)
+			{
+				MyAPIGateway.Utilities.InvokeOnGameThread(Flush, "SENetworkAPI");
+			}
+		}
+
+		internal static void QueueFetchAnswer(NetSync property, ulong sendTo)
+		{
+			bool schedule;
+
+			lock (locker)
+			{
+				pendingAnswers.Add(property);
+				pendingAnswerTargets.Add(sendTo);
+				schedule = ClaimFlush();
+			}
+
+			if (schedule)
+			{
+				MyAPIGateway.Utilities.InvokeOnGameThread(Flush, "SENetworkAPI");
+			}
+		}
+
+		private static bool ClaimFlush()
+		{
+			if (flushScheduled)
+			{
+				return false;
+			}
+
+			flushScheduled = true;
+			return true;
+		}
+
+		internal static void Flush()
+		{
+			lock (locker)
+			{
+				flushScheduled = false;
+
+				List<NetSync> swap = due;
+				due = pending;
+				pending = swap;
+				pending.Clear();
+
+				swap = dueFetches;
+				dueFetches = pendingFetches;
+				pendingFetches = swap;
+				pendingFetches.Clear();
+
+				swap = dueAnswers;
+				dueAnswers = pendingAnswers;
+				pendingAnswers = swap;
+				pendingAnswers.Clear();
+
+				List<ulong> swapTargets = dueAnswerTargets;
+				dueAnswerTargets = pendingAnswerTargets;
+				pendingAnswerTargets = swapTargets;
+				pendingAnswerTargets.Clear();
+			}
+
+			FlushUpdates();
+			FlushFetches();
+			FlushFetchAnswers();
+		}
+
+		private static void FlushUpdates()
+		{
+			Server server = NetworkAPI.Instance as Server;
+			int groupCount = 0;
+			for (int i = 0; i < due.Count; i++)
+			{
+				NetSync property = due[i];
+				if (!property.IsDirty || property.IsInFlush) continue;
+				Destination destination = new Destination {
+					Entity = server != null && property.LimitToSyncDistance ? property.Entity : null,
+					Lossy = property.IsLossy
+				};
+				int index;
+				if (!groupIndices.TryGetValue(destination, out index))
+				{
+					index = groupCount++;
+					groupIndices.Add(destination, index);
+					if (index == updateGroups.Count) updateGroups.Add(new List<NetSync>());
+				}
+				updateGroups[index].Add(property);
+				// Keep IsDirty until collection: an immediate Push from another
+				// group's callback must still be able to cancel this queued send.
+				property.IsInFlush = true;
+			}
+			due.Clear();
+			groupIndices.Clear();
+
+			for (int i = 0; i < groupCount; i++)
+			{
+				List<NetSync> properties = updateGroups[i];
+				NetSync first = properties[0];
+				List<ulong> recipients = null;
+				try
+				{
+					if (server != null && first.LimitToSyncDistance && first.Entity != null)
+					{
+						recipients = server.CollectRecipients(first.Entity.PositionComp.GetPosition(), 0, 0, LocalSender());
+						if (recipients.Count == 0) continue;
+					}
+					batch.Clear();
+					for (int j = 0; j < properties.Count; j++)
+					{
+						NetSync property = properties[j];
+						property.IsInFlush = false;
+						if (property.IsDirty) Collect(property, batch);
+					}
+					SendBatch(batch, first, 0, "updates", recipients);
+				}
+				catch (Exception e)
+				{
+					MyLog.Default.Error($"[NetworkAPI] _ERROR_ Flush(): Problem sending batched updates: {e}");
+				}
+				finally
+				{
+					if (recipients != null) server.ReleaseRecipients(recipients);
+					for (int j = 0; j < properties.Count; j++)
+					{
+						// Cancel unsent entries, but retain updates queued by callbacks
+						// after a property was collected for this packet.
+						if (properties[j].IsInFlush) properties[j].IsDirty = false;
+						properties[j].IsInFlush = false;
+					}
+					properties.Clear();
+					batch.Clear();
+				}
+			}
+		}
+
+		internal static ulong LocalSender()
+		{
+			return MyAPIGateway.Session?.LocalHumanPlayer?.SteamUserId ?? 0;
+		}
+
+		private static void FlushFetches()
+		{
+			if (dueFetches.Count == 0)
+			{
+				return;
+			}
+
+			batch.Clear();
+
+			for (int i = 0; i < dueFetches.Count; i++)
+			{
+				NetSync property = dueFetches[i];
+				property.IsFetchPending = false;
+
+				SyncData request = property.BuildFetch();
+
+				if (request != null)
+				{
+					batch.Add(request);
+				}
+			}
+
+			dueFetches.Clear();
+			SendBatch(batch, null, ulong.MinValue, "fetches");
+		}
+
+		private static void FlushFetchAnswers()
+		{
+			if (dueAnswers.Count == 0)
+			{
+				return;
+			}
+
+			for (int i = 0; i < dueAnswers.Count; i++)
+			{
+				ulong target = dueAnswerTargets[i];
+				List<SyncData> answers;
+
+				if (!answersByTarget.TryGetValue(target, out answers))
+				{
+					answers = new List<SyncData>();
+					answersByTarget.Add(target, answers);
+				}
+
+				if (!answerTargets.Contains(target))
+				{
+					answerTargets.Add(target);
+				}
+
+				CollectAnswer(dueAnswers[i], target, answers);
+			}
+
+			dueAnswers.Clear();
+			dueAnswerTargets.Clear();
+
+			for (int i = 0; i < answerTargets.Count; i++)
+			{
+				ulong target = answerTargets[i];
+				List<SyncData> answers = answersByTarget[target];
+				SendBatch(answers, null, target, "fetch answers");
+				answers.Clear();
+			}
+
+			answerTargets.Clear();
+		}
+
+		private static void CollectAnswer(NetSync property, ulong sender, List<SyncData> into)
+		{
+			try
+			{
+				property.RaiseFetchRequest(sender);
+			}
+			catch (Exception e)
+			{
+				MyLog.Default.Error($"[NetworkAPI] BeforeFetchRequestResponse handler threw:\n{e}");
+			}
+
+			SyncData update = property.BuildUpdate(SyncType.Post);
+
+			if (update != null)
+			{
+				into.Add(update);
+			}
+		}
+
+		private static void Collect(NetSync property, List<SyncData> into)
+		{
+			property.IsDirty = false;
+
+			SyncData update = property.BuildUpdate(SyncType.Broadcast);
+
+			if (update != null)
+			{
+				into.Add(update);
+			}
+		}
+
+		internal static int VarintSize(ulong value)
+		{
+			int size = 1;
+			while (value >= 128) { size++; value >>= 7; }
+			return size;
+		}
+
+		// Size of one nested SyncData, without allocating another serialized copy.
+		// Null/empty byte-array encoding differences can only overestimate size.
+		internal static long UpdateWireSize(SyncData update)
+		{
+			long size = 0;
+			if (update.Id != 0) size += 1 + VarintSize(unchecked((ulong)update.Id));
+			if (update.EntityId != 0) size += 1 + VarintSize(unchecked((ulong)update.EntityId));
+			if (update.SyncType != SyncType.Post) size += 2;
+			if (update.Data != null) size += 1L + VarintSize((ulong)update.Data.Length) + update.Data.Length;
+			return 1L + VarintSize((ulong)size) + size;
+		}
+
+		private static void SendBatch(List<SyncData> updates, NetSync group, ulong sendTo, string what, List<ulong> recipients = null)
+		{
+			if (updates.Count == 0 || !NetworkAPI.IsInitialized)
+			{
+				return;
+			}
+
+			try
+			{
+				ulong id = ulong.MinValue;
+				IMyPlayer localPlayer = MyAPIGateway.Session?.LocalHumanPlayer;
+
+				if (localPlayer != null)
+				{
+					id = localPlayer.SteamUserId;
+				}
+
+				bool isReliable = group == null || !group.IsLossy;
+				bool positional = NetworkAPI.Instance is Server && group != null && group.LimitToSyncDistance && group.Entity != null;
+
+				int byteLimit = isReliable ? ReliableBatchByteLimit : NetworkAPI.UnreliableMessageLimit;
+				for (int start = 0; start < updates.Count;)
+				{
+					// Conservative protobuf bounds: envelope, tags, lengths and varints.
+					// A single oversize value is sent intact; reliability fallback still applies.
+					long bytes = 32;
+					int count = 0;
+					while (start + count < updates.Count && count < MaxUpdatesPerPacket)
+					{
+						long next = UpdateWireSize(updates[start + count]);
+						if (count > 0 && bytes + next > byteLimit) break;
+						bytes += next;
+						count++;
+					}
+					Command cmd = new Command() { IsProperty = true, SteamId = id };
+
+					if (count == 1)
+					{
+						cmd.Property = updates[start];
+					}
+					else
+					{
+						List<SyncData> carried = new List<SyncData>(count);
+
+						for (int i = 0; i < count; i++)
+						{
+							carried.Add(updates[start + i]);
+						}
+
+						cmd.Properties = carried;
+					}
+
+					start += count;
+					if (recipients != null)
+					{
+						((Server)NetworkAPI.Instance).SendPrepared(cmd, recipients, isReliable);
+					}
+					else if (positional)
+					{
+						NetworkAPI.Instance.SendCommand(cmd, group.Entity.PositionComp.GetPosition(), steamId: sendTo, isReliable: isReliable);
+					}
+					else
+					{
+						NetworkAPI.Instance.SendCommand(cmd, steamId: sendTo, isReliable: isReliable);
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				MyLog.Default.Error($"[NetworkAPI] _ERROR_ Flush(): Problem sending batched {what}: {e}");
+			}
+		}
+
+		internal static void RouteMessage(SyncData pack, ulong sender, long timestamp)
+		{
+			if (pack == null)
+			{
+				MyLog.Default.Error($"[NetworkAPI] Property data is null");
+				return;
+			}
+
+			if (NetworkAPI.LogNetworkTraffic)
+			{
+				MyLog.Default.Info($"[NetworkAPI] Id:{pack.Id}, EId:{pack.EntityId}, {pack.SyncType}");
+			}
+
+			NetSync property;
+			if (pack.EntityId == 0)
+			{
+				if (!PropertyById.TryGetValue(pack.Id, out property))
+				{
+					MyLog.Default.Info($"[NetworkAPI] id not registered in dictionary 'PropertyById'");
+					return;
+				}
+			}
+			else
+			{
+				MyEntity entity = MyAPIGateway.Entities.GetEntityById(pack.EntityId) as MyEntity;
+
+				if (entity == null)
+				{
+					MyLog.Default.Info($"[NetworkAPI] Failed to get entity by id");
+					return;
+				}
+
+				List<NetSync> properties;
+				if (!PropertiesByEntity.TryGetValue(entity, out properties))
+				{
+					MyLog.Default.Info($"[NetworkAPI] Entity not registered in dictionary 'PropertiesByEntity'");
+					return;
+				}
+
+				if (pack.Id < 0 || pack.Id >= properties.Count)
+				{
+					MyLog.Default.Info($"[NetworkAPI] property index out of range");
+					return;
+				}
+
+				property = properties[(int)pack.Id];
+			}
+
+			bool isServer = MyAPIGateway.Multiplayer.IsServer;
+			if (pack.SyncType == SyncType.Fetch)
+			{
+				if (isServer && property.TransferType != TransferType.ClientToServer && sender != 0)
+					QueueFetchAnswer(property, sender);
+				return;
+			}
+
+			if ((pack.SyncType != SyncType.Post && pack.SyncType != SyncType.Broadcast) ||
+				(isServer && property.TransferType == TransferType.ServerToClient) ||
+				(!isServer && property.TransferType == TransferType.ClientToServer))
+				return;
+
+			property.LastMessageTimestamp = timestamp;
+			property.SetNetworkValue(pack.Data, sender);
+		}
 	}
 
+	/// <summary>
+	/// A value kept in step across the network. Attach to an entity for
+	/// per-block state, or to a session component for mod wide state.
+	/// T must be serializable by MyAPIGateway.Utilities.SerializeToBinary.
+	/// </summary>
 	public class NetSync<T> : NetSync
 	{
-		/// <summary>
-		/// Fires each time the value is changed
-		/// Provides the old value and the new value
-		/// </summary>
+		/// <summary>Raised on every change, local or remote. Provides old and new value.</summary>
 		public Action<T, T> ValueChanged;
 
 		/// <summary>
-		/// Fires only when the a network call is made
-		/// Provides the old value and the new value
-		/// also provides the steamId
+		/// Raised only for changes arriving over the network. Provides old value,
+		/// new value and sender.
 		/// </summary>
 		public Action<T, T, ulong> ValueChangedByNetwork;
 
 		/// <summary>
-		/// this property syncs across the network when changed
+		/// The value. Assigning a different value broadcasts it; assigning an
+		/// equal one does nothing unless <see cref="AlwaysSend"/> is set.
 		/// </summary>
 		public T Value
 		{
@@ -109,14 +617,36 @@ namespace SENetworkAPI
 		}
 
 		private T _value;
-		private MyEntity Entity;
 		private string sessionName;
+		private bool alwaysSend;
 
-		/// <param name="entity">IMyEntity object this property is attached to</param>
-		/// <param name="transferType"></param>
-		/// <param name="startingValue">Sets an initial value</param>
-		/// <param name="syncOnLoad">automatically syncs data to clients when the class initializes</param>
-		/// <param name="limitToSyncDistance">marking this true only sends data to clients within sync distance</param>
+		private static readonly bool ComparisonIsMeaningful = IsComparisonMeaningful();
+		private static readonly EqualityComparer<T> Comparer = EqualityComparer<T>.Default;
+
+		private static bool IsComparisonMeaningful()
+		{
+			if (typeof(T) == typeof(string))
+			{
+				return true;
+			}
+
+			object probe = default(T);
+
+			if (probe == null)
+			{
+				return false;
+			}
+
+			return probe is IEquatable<T> || probe is IComparable;
+		}
+
+		/// <summary>A property owned by an entity.</summary>
+		/// <param name="entity">The owning entity</param>
+		/// <param name="transferType">Directions this property is allowed to travel</param>
+		/// <param name="startingValue">Initial local value. A null value cannot be transmitted</param>
+		/// <param name="syncOnLoad">Fetch the current value once the entity is in the scene</param>
+		/// <param name="limitToSyncDistance">Restrict updates to players within sync distance</param>
+		/// <exception cref="Exception">The entity is null</exception>
 		public NetSync(IMyEntity entity, TransferType transferType, T startingValue = default(T), bool syncOnLoad = true, bool limitToSyncDistance = true)
 		{
 			if (entity == null)
@@ -127,11 +657,13 @@ namespace SENetworkAPI
 			Init(entity as MyEntity, transferType, startingValue, syncOnLoad, limitToSyncDistance);
 		}
 
-		/// <param name="entity">MyEntity object this property is attached to</param>
-		/// <param name="transferType"></param>
-		/// <param name="startingValue">Sets an initial value</param>
-		/// <param name="syncOnLoad">automatically syncs data to clients when the class initializes</param>
-		/// <param name="limitToSyncDistance">marking this true only sends data to clients within sync distance</param>
+		/// <summary>A property owned by an entity.</summary>
+		/// <param name="entity">The owning entity</param>
+		/// <param name="transferType">Directions this property is allowed to travel</param>
+		/// <param name="startingValue">Initial local value. A null value cannot be transmitted</param>
+		/// <param name="syncOnLoad">Fetch the current value once the entity is in the scene</param>
+		/// <param name="limitToSyncDistance">Restrict updates to players within sync distance</param>
+		/// <exception cref="Exception">The entity is null</exception>
 		public NetSync(MyEntity entity, TransferType transferType, T startingValue = default(T), bool syncOnLoad = true, bool limitToSyncDistance = true)
 		{
 			if (entity == null)
@@ -142,11 +674,13 @@ namespace SENetworkAPI
 			Init(entity, transferType, startingValue, syncOnLoad, limitToSyncDistance);
 		}
 
-		/// <param name="logic">MyGameLogicComponent object this property is attached to</param>
-		/// <param name="transferType"></param>
-		/// <param name="startingValue">Sets an initial value</param>
-		/// <param name="syncOnLoad">automatically syncs data to clients when the class initializes</param>
-		/// <param name="limitToSyncDistance">marking this true only sends data to clients within sync distance</param>
+		/// <summary>A property owned by the entity this game logic component is attached to.</summary>
+		/// <param name="logic">The owning game logic component</param>
+		/// <param name="transferType">Directions this property is allowed to travel</param>
+		/// <param name="startingValue">Initial local value. A null value cannot be transmitted</param>
+		/// <param name="syncOnLoad">Fetch the current value once the entity is in the scene</param>
+		/// <param name="limitToSyncDistance">Restrict updates to players within sync distance</param>
+		/// <exception cref="Exception">The component or its entity is null</exception>
 		public NetSync(MyGameLogicComponent logic, TransferType transferType, T startingValue = default(T), bool syncOnLoad = true, bool limitToSyncDistance = true)
 		{
 			if (logic?.Entity == null)
@@ -157,11 +691,13 @@ namespace SENetworkAPI
 			Init(logic.Entity as MyEntity, transferType, startingValue, syncOnLoad, limitToSyncDistance);
 		}
 
-		/// <param name="logic">MySessionComponentBase object this property is attached to</param>
-		/// <param name="transferType"></param>
-		/// <param name="startingValue">Sets an initial value</param>
-		/// <param name="syncOnLoad">automatically syncs data to clients when the class initializes</param>
-		/// <param name="limitToSyncDistance">marking this true only sends data to clients within sync distance</param>
+		/// <summary>A property owned by the mod rather than by any entity.</summary>
+		/// <param name="logic">The owning session component</param>
+		/// <param name="transferType">Directions this property is allowed to travel</param>
+		/// <param name="startingValue">Initial local value. A null value cannot be transmitted</param>
+		/// <param name="syncOnLoad">Fetch the current value immediately</param>
+		/// <param name="limitToSyncDistance">Unused: a session property has no position</param>
+		/// <exception cref="Exception">The component is null</exception>
 		public NetSync(MySessionComponentBase logic, TransferType transferType, T startingValue = default(T), bool syncOnLoad = true, bool limitToSyncDistance = true)
 		{
 			if (logic == null)
@@ -173,13 +709,6 @@ namespace SENetworkAPI
 			Init(null, transferType, startingValue, syncOnLoad, limitToSyncDistance);
 		}
 
-		/// <summary>
-		/// This funtion is called by the constructer
-		/// </summary>
-		/// <param name="transferType"></param>
-		/// <param name="startingValue">Sets an initial value</param>
-		/// <param name="syncOnLoad">automatically syncs data to clients when the class initializes</param>
-		/// <param name="limitToSyncDistance">marking this true only sends data to clients within sync distance</param>
 		private void Init(MyEntity entity, TransferType transferType, T startingValue = default(T), bool syncOnLoad = true, bool limitToSyncDistance = true)
 		{
 			TransferType = transferType;
@@ -190,23 +719,29 @@ namespace SENetworkAPI
 			if (entity != null)
 			{
 				Entity = entity;
-				Entity.OnClose += Entity_OnClose;
+				bool firstOnEntity;
 
-				if (PropertiesByEntity.ContainsKey(Entity))
+				lock (locker)
 				{
-					lock (locker)
+					List<NetSync> properties;
+					if (PropertiesByEntity.TryGetValue(Entity, out properties))
 					{
-						PropertiesByEntity[Entity].Add(this);
-						Id = PropertiesByEntity[Entity].Count - 1;
+						properties.Add(this);
+						Id = properties.Count - 1;
+						firstOnEntity = false;
 					}
-				}
-				else
-				{
-					lock (locker)
+					else
 					{
 						PropertiesByEntity.Add(Entity, new List<NetSync> { this });
 						Id = 0;
-					}	
+						firstOnEntity = true;
+					}
+				}
+
+				if (firstOnEntity)
+				{
+					Entity.OnClose += Entity_OnClose;
+					Entity.AddedToScene += SyncOnAddedToScene;
 				}
 			}
 			else
@@ -218,16 +753,9 @@ namespace SENetworkAPI
 				}
 			}
 
-			if (SyncOnLoad)
+			if (SyncOnLoad && Entity == null)
 			{
-				if (Entity != null)
-				{
-					Entity.AddedToScene += SyncOnAddedToScene;
-				}
-				else
-				{
-					Fetch();
-				}
+				Fetch();
 			}
 
 			if (NetworkAPI.LogNetworkTraffic)
@@ -236,73 +764,218 @@ namespace SENetworkAPI
 			}
 		}
 
-		private void SyncOnAddedToScene(MyEntity e) 
+		private void SyncOnAddedToScene(MyEntity e)
 		{
-			if (Entity != e)
-				return;
+			e.AddedToScene -= SyncOnAddedToScene;
 
-			Fetch();			
-			Entity.AddedToScene -= SyncOnAddedToScene;
+			List<NetSync> properties;
+
+			lock (locker)
+			{
+				if (!PropertiesByEntity.TryGetValue(e, out properties))
+				{
+					return;
+				}
+			}
+
+			for (int i = 0; i < properties.Count; i++)
+			{
+				if (properties[i].SyncOnLoad)
+				{
+					properties[i].Fetch();
+				}
+			}
 		}
 
 		private void Entity_OnClose(MyEntity entity)
 		{
-			PropertyById.Remove(Id);
+			entity.OnClose -= Entity_OnClose;
+			entity.AddedToScene -= SyncOnAddedToScene;
+
+			lock (locker)
+			{
+				PropertiesByEntity.Remove(entity);
+			}
 		}
 
 		/// <summary>
-		/// Allows you to change how syncing works when setting the value this way
+		/// Sends on every assignment, including one that does not change the
+		/// value. Off by default, in which case an unchanged assignment sends
+		/// nothing and does not raise <see cref="ValueChanged"/>.
 		/// </summary>
+		/// <param name="enabled">False restores change detection</param>
+		/// <returns>This property, for chaining at the declaration</returns>
+		public NetSync<T> AlwaysSend(bool enabled = true)
+		{
+			alwaysSend = enabled;
+			return this;
+		}
+
+		/// <summary>
+		/// Permits the unreliable channel for updates that fit within
+		/// <see cref="NetworkAPI.UnreliableMessageLimit"/>. Fetches stay reliable.
+		/// </summary>
+		/// <param name="enabled">False restores reliable sends</param>
+		/// <returns>This property, for chaining at the declaration</returns>
+		public NetSync<T> Lossy(bool enabled = true)
+		{
+			IsLossy = enabled;
+			return this;
+		}
+
+		/// <summary>
+		/// Batches updates with every other coalesced property that changes in
+		/// the same frame, into one packet per destination. Costs one frame of
+		/// latency. <see cref="Push()"/> still sends immediately.
+		/// </summary>
+		/// <param name="enabled">False restores immediate sends</param>
+		/// <returns>This property, for chaining at the declaration</returns>
+		public NetSync<T> Coalesce(bool enabled = true)
+		{
+			Coalesced = enabled;
+			return this;
+		}
+
+		/// <summary>Sets the value, choosing what to send. Sends nothing by default.</summary>
+		/// <param name="val">The new value</param>
+		/// <param name="syncType">What to transmit, if anything</param>
 		public void SetValue(T val, SyncType syncType = SyncType.None)
 		{
 			T oldval = _value;
-			lock (_value)
+
+			if (!alwaysSend && ComparisonIsMeaningful && Comparer.Equals(oldval, val))
 			{
-				_value = val;
+				return;
 			}
 
-			SendValue(syncType);
-			ValueChanged?.Invoke(oldval, val);
+			_value = val;
 
+			if (Coalesced && syncType == SyncType.Broadcast)
+			{
+				QueueForFlush(this);
+			}
+			else
+			{
+				SendValue(syncType);
+			}
+
+			ValueChanged?.Invoke(oldval, val);
 		}
 
-		/// <summary>
-		/// Sets the data received over the network
-		/// </summary>
 		internal override void SetNetworkValue(byte[] data, ulong sender)
 		{
+			T oldval = _value;
+
 			try
 			{
-				T oldval = _value;
-				lock (_value)
-				{
-					_value = MyAPIGateway.Utilities.SerializeFromBinary<T>(data);
+				_value = MyAPIGateway.Utilities.SerializeFromBinary<T>(data);
 
-					if (NetworkAPI.LogNetworkTraffic)
-					{
-						MyLog.Default.Info($"[NetworkAPI] {Descriptor()} New value: {oldval} --- Old value: {_value}");
-					}
+				if (NetworkAPI.LogNetworkTraffic)
+				{
+					MyLog.Default.Info($"[NetworkAPI] {Descriptor()} Old value: {oldval} --- New value: {_value}");
 				}
 
-				if (MyAPIGateway.Multiplayer.IsServer)
-				{
-					SendValue();
-				}
-
-				ValueChanged?.Invoke(oldval, _value);
-				ValueChangedByNetwork?.Invoke(oldval, _value, sender);
 			}
 			catch (Exception e)
 			{
 				MyLog.Default.Error($"[NetworkAPI] Failed to deserialize network property data\n{e}");
+				return;
+			}
+
+			if (MyAPIGateway.Multiplayer.IsServer)
+			{
+				if (Coalesced) QueueForFlush(this);
+				else SendValue(SyncType.Broadcast, ulong.MinValue, data);
+			}
+
+			try
+			{
+				ValueChanged?.Invoke(oldval, _value);
+			}
+			catch (Exception e)
+			{
+				MyLog.Default.Error($"[NetworkAPI] {Descriptor()} ValueChanged handler threw:\n{e}");
+			}
+
+			try
+			{
+				ValueChangedByNetwork?.Invoke(oldval, _value, sender);
+			}
+			catch (Exception e)
+			{
+				MyLog.Default.Error($"[NetworkAPI] {Descriptor()} ValueChangedByNetwork handler threw:\n{e}");
 			}
 		}
 
-		/// <summary>
-		/// sends the value across the network
-		/// </summary>
-		private void SendValue(SyncType syncType = SyncType.Broadcast, ulong sendTo = ulong.MinValue)
+		internal override SyncData BuildFetch()
 		{
+			if (!CanSend(SyncType.Fetch))
+			{
+				return null;
+			}
+
+			return new SyncData() {
+				Id = Id,
+				EntityId = (Entity != null) ? Entity.EntityId : 0,
+				SyncType = SyncType.Fetch
+			};
+		}
+
+		internal override void RaiseFetchRequest(ulong sender)
+		{
+			BeforeFetchRequestResponse?.Invoke(sender);
+		}
+
+		internal override SyncData BuildUpdate(SyncType syncType)
+		{
+			try
+			{
+				if (!CanSend(syncType) || _value == null)
+				{
+					return null;
+				}
+
+				return new SyncData() {
+					Id = Id,
+					EntityId = (Entity != null) ? Entity.EntityId : 0,
+					Data = MyAPIGateway.Utilities.SerializeToBinary(_value),
+					SyncType = syncType
+				};
+			}
+			catch (Exception e)
+			{
+				MyLog.Default.Error($"[NetworkAPI] _ERROR_ BuildUpdate(): Problem encoding value: {e}");
+				return null;
+			}
+		}
+
+		private bool CanSend(SyncType syncType)
+		{
+			if (!NetworkAPI.IsInitialized || syncType == SyncType.None)
+			{
+				return false;
+			}
+
+			bool isServer = MyAPIGateway.Multiplayer.IsServer;
+
+			if (syncType != SyncType.Fetch &&
+				((TransferType == TransferType.ServerToClient && !isServer) ||
+				 (TransferType == TransferType.ClientToServer && isServer)))
+			{
+				return false;
+			}
+
+			IMySession session = MyAPIGateway.Session;
+
+			return session == null || session.OnlineMode != MyOnlineModeEnum.OFFLINE;
+		}
+
+		private void SendValue(SyncType syncType = SyncType.Broadcast, ulong sendTo = ulong.MinValue, byte[] serializedValue = null)
+		{
+			IsDirty = false;
+			Server server = NetworkAPI.Instance as Server;
+			List<ulong> recipients = null;
+
 			try
 			{
 				if (!NetworkAPI.IsInitialized)
@@ -321,9 +994,11 @@ namespace SENetworkAPI
 					return;
 				}
 
-				if (syncType != SyncType.Fetch && 
-					(TransferType == TransferType.ServerToClient && !MyAPIGateway.Multiplayer.IsServer) ||
-					(TransferType == TransferType.ClientToServer && MyAPIGateway.Multiplayer.IsServer))
+				bool isServer = MyAPIGateway.Multiplayer.IsServer;
+
+				if (syncType != SyncType.Fetch &&
+					((TransferType == TransferType.ServerToClient && !isServer) ||
+					 (TransferType == TransferType.ClientToServer && isServer)))
 				{
 					if (NetworkAPI.LogNetworkTraffic)
 					{
@@ -333,7 +1008,9 @@ namespace SENetworkAPI
 					return;
 				}
 
-				if (MyAPIGateway.Session.OnlineMode == MyOnlineModeEnum.OFFLINE)
+				IMySession session = MyAPIGateway.Session;
+
+				if (session != null && session.OnlineMode == MyOnlineModeEnum.OFFLINE)
 				{
 					if (NetworkAPI.LogNetworkTraffic)
 					{
@@ -343,7 +1020,9 @@ namespace SENetworkAPI
 					return;
 				}
 
-				if (Value == null)
+				bool carriesValue = syncType != SyncType.Fetch;
+
+				if (carriesValue && _value == null)
 				{
 					if (NetworkAPI.LogNetworkTraffic)
 					{
@@ -353,17 +1032,24 @@ namespace SENetworkAPI
 					return;
 				}
 
+				if (server != null && LimitToSyncDistance && Entity != null)
+				{
+					recipients = server.CollectRecipients(Entity.PositionComp.GetPosition(), 0, sendTo, LocalSender());
+					if (recipients.Count == 0) return;
+				}
+
 				SyncData data = new SyncData() {
 					Id = Id,
 					EntityId = (Entity != null) ? Entity.EntityId : 0,
-					Data = MyAPIGateway.Utilities.SerializeToBinary(_value),
+					Data = carriesValue ? (serializedValue ?? MyAPIGateway.Utilities.SerializeToBinary(_value)) : null,
 					SyncType = syncType
 				};
 
 				ulong id = ulong.MinValue;
-				if (MyAPIGateway.Session?.LocalHumanPlayer != null)
+				IMyPlayer localPlayer = session?.LocalHumanPlayer;
+				if (localPlayer != null)
 				{
-					id = MyAPIGateway.Session.LocalHumanPlayer.SteamUserId;
+					id = localPlayer.SteamUserId;
 				}
 
 				if (id == sendTo && id != ulong.MinValue)
@@ -376,127 +1062,58 @@ namespace SENetworkAPI
 					MyLog.Default.Info($"[NetworkAPI] _TRANSMITTING_ {Descriptor()} - Id:{data.Id}, EId:{data.EntityId}, {data.SyncType}, {((data.SyncType == SyncType.Fetch) ? "" : $"Val:{_value}")}");
 				}
 
-				if (LimitToSyncDistance && Entity != null)
+				bool isReliable = !IsLossy || syncType == SyncType.Fetch;
+
+				if (recipients != null)
 				{
-					NetworkAPI.Instance.SendCommand(new Command() { IsProperty = true, Data = MyAPIGateway.Utilities.SerializeToBinary(data), SteamId = id }, Entity.PositionComp.GetPosition(), steamId: sendTo);
+					server.SendPrepared(new Command() { IsProperty = true, Property = data, SteamId = id }, recipients, isReliable);
+				}
+				else if (LimitToSyncDistance && Entity != null)
+				{
+					NetworkAPI.Instance.SendCommand(new Command() { IsProperty = true, Property = data, SteamId = id }, Entity.PositionComp.GetPosition(), steamId: sendTo, isReliable: isReliable);
 				}
 				else
 				{
-					NetworkAPI.Instance.SendCommand(new Command() { IsProperty = true, Data = MyAPIGateway.Utilities.SerializeToBinary(data), SteamId = id }, steamId: sendTo);
+					NetworkAPI.Instance.SendCommand(new Command() { IsProperty = true, Property = data, SteamId = id }, steamId: sendTo, isReliable: isReliable);
 				}
 			}
 			catch (Exception e)
 			{
 				MyLog.Default.Error($"[NetworkAPI] _ERROR_ SendValue(): Problem syncing value: {e}");
 			}
-		}
-
-		/// <summary>
-		/// Receives and redirects all property traffic
-		/// </summary>
-		/// <param name="pack">this hold the path to the property and the data to sync</param>
-		internal static void RouteMessage(SyncData pack, ulong sender, long timestamp)
-		{
-			if (pack == null)
+			finally
 			{
-				MyLog.Default.Error($"[NetworkAPI] Property data is null");
-				return;
-			}
-
-			if (NetworkAPI.LogNetworkTraffic)
-			{
-				MyLog.Default.Info($"[NetworkAPI] Id:{pack.Id}, EId:{pack.EntityId}, {pack.SyncType}");
-			}
-
-			NetSync property;
-			if (pack.EntityId == 0)
-			{
-				if (!PropertyById.ContainsKey(pack.Id))
-				{
-					MyLog.Default.Info($"[NetworkAPI] id not registered in dictionary 'PropertyById'");
-					return;
-				}
-
-				property = PropertyById[pack.Id];
-			}
-			else
-			{
-				MyEntity entity = (MyEntity)MyAPIGateway.Entities.GetEntityById(pack.EntityId);
-
-				if (entity == null)
-				{
-					MyLog.Default.Info($"[NetworkAPI] Failed to get entity by id");
-					return;
-				}
-
-				if (!PropertiesByEntity.ContainsKey(entity))
-				{
-					MyLog.Default.Info($"[NetworkAPI] Entity not registered in dictionary 'PropertiesByEntity'");
-					return;
-				}
-
-				List<NetSync> properties = PropertiesByEntity[entity];
-
-				if (pack.Id >= properties.Count)
-				{
-					MyLog.Default.Info($"[NetworkAPI] property index out of range");
-					return;
-				}
-
-				property = properties[(int)pack.Id];
-			}
-
-			property.LastMessageTimestamp = timestamp;
-			if (pack.SyncType == SyncType.Fetch)
-			{
-				property.BeforeFetchRequestResponse?.Invoke(sender);
-				property.Push(SyncType.Post, sender);
-			}
-			else
-			{
-				property.SetNetworkValue(pack.Data, sender);
+				if (recipients != null) server.ReleaseRecipients(recipients);
 			}
 		}
 
-		/// <summary>
-		/// Request the lastest value from the server
-		/// Servers are not allowed to fetch from clients
-		/// </summary>
+		/// <summary>Requests the current value from the server. No-op on a server.</summary>
 		public override void Fetch()
 		{
 			if (!MyAPIGateway.Multiplayer.IsServer)
 			{
-				SendValue(SyncType.Fetch);
+				QueueFetch(this);
 			}
 		}
 
-		/// <summary>
-		/// Send data now
-		/// </summary>
+		/// <summary>Broadcasts the current value now, changed or not, ignoring batching.</summary>
 		public void Push()
 		{
 			SendValue();
 		}
 
-		/// <summary>
-		/// Send data to single user
-		/// </summary>
+		/// <summary>Sends the current value to one player now.</summary>
+		/// <param name="sendTo">The recipient's steam id</param>
 		public void Push(ulong sendTo)
 		{
 			SendValue(SyncType.Post, sendTo);
 		}
 
-		/// <summary>
-		/// Send data across the network now
-		/// </summary>
 		internal override void Push(SyncType type, ulong sendTo = ulong.MinValue)
 		{
 			SendValue(type, sendTo);
 		}
 
-		/// <summary>
-		/// Identifier for logging readability
-		/// </summary>
 		internal string Descriptor()
 		{
 			if (Entity != null)
