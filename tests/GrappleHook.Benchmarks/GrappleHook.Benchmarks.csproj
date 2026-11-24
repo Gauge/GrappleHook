@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Offline timing of the rope math the mod runs every frame. Nothing here starts the game.
+
+    Baseline/ is a frozen copy of GrappleHook/Core from before the optimisation passes, in its
+    own namespace. Every scenario runs on both, so each pass is measured against where it
+    started and checked to produce the same rope.
+
+    Tiered compilation is off: every method is compiled fully optimised on first call, with no
+    profile-guided recompiling, which is closer to the .NET Framework 4.8 JIT the game runs
+    the mod under than .NET's default. Absolute numbers still differ from the game's; the
+    baseline-to-current ratio is what to read.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>GrappleHook.Benchmarks</AssemblyName>
+    <RootNamespace>GrappleHook.Benchmarks</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <TieredCompilation>false</TieredCompilation>
+    <TieredPGO>false</TieredPGO>
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../GrappleHook.Core/GrappleHook.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="VRage.Math">
+      <HintPath>$(SEBinPath)/VRage.Math.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

@@ -247,6 +247,26 @@ namespace GrappleHook.Tests
         }
 
         [Fact]
+        public void RayHitsPath_HitsJustInsideRangeAndMissesJustOutside()
+        {
+            RopePath path = Curve(Vector3D.Zero, new Vector3D(10, 0, 0), 10d, 5);
+            RayD near = new RayD(new Vector3D(5, 3.49d, 0), Vector3D.Down);
+            RayD far = new RayD(new Vector3D(5, 3.51d, 0), Vector3D.Down);
+
+            Assert.True(RopeMath.RayHitsPath(path, ref near, 3.5d));
+            Assert.False(RopeMath.RayHitsPath(path, ref far, 3.5d));
+        }
+
+        [Fact]
+        public void RayHitsPath_HitsFromInsideASegmentsBounds()
+        {
+            RopePath path = Curve(new Vector3D(0, 0, 0), new Vector3D(10, 4, 4), 10.8d, 5);
+            RayD ray = new RayD(new Vector3D(5, 2, 2), Vector3D.Left);
+
+            Assert.True(RopeMath.RayHitsPath(path, ref ray, 0.1d));
+        }
+
+        [Fact]
         public void RayHitsPath_EmptyPathIsNeverHit()
         {
             RopePath path = new RopePath();

@@ -79,8 +79,7 @@ namespace GrappleHook
         private readonly List<Vector3D> previousAnchors = new List<Vector3D>();
 
         /// <summary>The drawn rope, one chain per span between anchors.</summary>
-        private readonly List<RopeChain> chains = new List<RopeChain>();
-        private readonly RopePath shapeBuffer = new RopePath();
+        private readonly RopeShape ropeShape = new RopeShape();
 
         private static readonly List<IHitInfo> HitBuffer = new List<IHitInfo>();
         private static readonly List<IMyCubeGrid> GroupBuffer = new List<IMyCubeGrid>();
@@ -430,79 +429,32 @@ namespace GrappleHook
         /// </summary>
         private void UpdateRopePath()
         {
-            rope.Clear();
-            if (anchors.Count < 2) return;
+            if (anchors.Count < 2)
+            {
+                rope.Clear();
+                return;
+            }
 
-            double total = RopeWrap.Length(anchors);
-            double scale = total > 1e-9 ? CurrentRopeLength(total) / total : 1d;
+            double ropeLength = CurrentRopeLength(RopeWrap.Length(anchors));
             Vector3D middle = (anchors[0] + anchors[anchors.Count - 1]) * 0.5d;
             Vector3D gravity = WorldPlanets.GetGravity(middle);
-            int spans = anchors.Count - 1;
 
             if (isDedicated)
             {
-                for (int s = 0; s < spans; s++)
-                {
-                    double span = Vector3D.Distance(anchors[s], anchors[s + 1]);
-                    RopeMath.AppendCurvePoints(rope, anchors[s], anchors[s + 1], gravity, span * scale, PointsFor(span, total), s > 0);
-                }
+                RopeShape.BuildCatenary(rope, anchors, ropeLength, gravity, Config.Rope.DrawPoints);
             }
             else
             {
-                if (chains.Count != spans)
-                {
-                    while (chains.Count < spans) chains.Add(new RopeChain());
-                    while (chains.Count > spans) chains.RemoveAt(chains.Count - 1);
-                    for (int s = 0; s < spans; s++) chains[s].Active = false;
-                }
-
+                // in space there is no hang, so a new chain bows away from the launcher's underside
                 double airDrag = WorldPlanets.GetAirDensity(middle) * ChainAirDrag;
-                Vector3D gravityStep = gravity * (WinchMath.TickSeconds * WinchMath.TickSeconds);
-
-                for (int s = 0; s < spans; s++)
-                {
-                    RopeChain chain = chains[s];
-                    double span = Vector3D.Distance(anchors[s], anchors[s + 1]);
-                    double restLength = span * scale;
-
-                    if (!chain.Step(anchors[s], anchors[s + 1], restLength, gravityStep, ChainKeep, airDrag, ChainIterations))
-                    {
-                        StartChain(chain, s, restLength, PointsFor(span, total), gravity);
-                    }
-
-                    for (int i = s > 0 ? 1 : 0; i < chain.Count; i++)
-                    {
-                        rope.Add(chain.Points[i]);
-                    }
-                }
+                ropeShape.StepChains(rope, anchors, ropeLength, gravity, airDrag, Weapon.WorldMatrix.Down, Config.Rope.DrawPoints, ChainKeep, ChainIterations);
             }
-
-            rope.UpdateDistances();
-        }
-
-        /// <summary>
-        /// A chain starts from the shape the rope would hang in. In space there is no hang, so
-        /// it starts bowed away from the launcher's underside, to show its slack.
-        /// </summary>
-        private void StartChain(RopeChain chain, int span, double restLength, int points, Vector3D gravity)
-        {
-            Vector3D down = gravity.LengthSquared() > 1e-6 ? gravity : (Vector3D)Weapon.WorldMatrix.Down;
-            RopeMath.ComputeCurvePoints(shapeBuffer, anchors[span], anchors[span + 1], down, restLength, points);
-            chain.Reset(shapeBuffer.Points, 0, shapeBuffer.Count);
-        }
-
-        /// <summary>The rope's points shared among its spans by length.</summary>
-        private int PointsFor(double span, double total)
-        {
-            int points = Config.Rope.DrawPoints;
-            if (anchors.Count <= 2 || total <= 0) return points;
-            return Math.Max(RopeMath.MinSegmentPoints, (int)Math.Round(points * span / total) + 1);
         }
 
         private void HideRope()
         {
             rope.Clear();
-            for (int i = 0; i < chains.Count; i++) chains[i].Active = false;
+            ropeShape.Deactivate();
         }
 
         /// <summary>

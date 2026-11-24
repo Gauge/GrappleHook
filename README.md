@@ -152,6 +152,7 @@ and **only the mod project folder ships**.
 | [GrappleHook/SENetworkAPI/](GrappleHook/SENetworkAPI) | Vendored copy of SENetworkAPI, used for all client/server state sync. |
 | [GrappleHook/Content/](GrappleHook/Content) | `Data/` (block, weapon, ammo and blueprint definitions), `Models/`, `Textures/`. Packed to the mod root. |
 | [tests/](tests) | Projects that link the same `Core` sources so they can be built and tested outside the game, plus the definition checks. |
+| [tests/GrappleHook.Benchmarks/](tests/GrappleHook.Benchmarks/README.md) | Offline timing of the per-frame rope math, against a frozen baseline copy of `Core`. |
 | [tools/validate.sh](tools/validate.sh) | Compile everything and run the tests, without deploying. |
 | [tools/live-game/](tools/live-game) | Boot the game headless into a test world and report what it made of the mod. |
 | [tools/model/](tools/model/README.md) | Builds the small grid turret's models, icon and build stages from Blender scripts, through the game's own model exporter. |
@@ -174,6 +175,7 @@ bash tools/validate.sh              # compile the mod and tests (no deploy), the
 bash tools/validate.sh --build-only # compile only
 dotnet build GrappleHook.sln        # compile everything AND deploy the mod to the game
 dotnet build GrappleHook/GrappleHook.csproj   # deploy the mod alone
+dotnet run -c Release --project tests/GrappleHook.Benchmarks   # time the rope math; see its README
 ```
 
 `tests/GrappleHook.slnx` includes the mod project, so the validation build compiles every file the

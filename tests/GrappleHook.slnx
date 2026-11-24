@@ -6,4 +6,5 @@
   <Project Path="../GrappleHook/GrappleHook.csproj" />
   <Project Path="GrappleHook.Core/GrappleHook.Core.csproj" />
   <Project Path="GrappleHook.Tests/GrappleHook.Tests.csproj" />
+  <Project Path="GrappleHook.Benchmarks/GrappleHook.Benchmarks.csproj" />
 </Solution>

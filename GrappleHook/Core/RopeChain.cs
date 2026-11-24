@@ -101,13 +101,29 @@ namespace GrappleHook.Core
                 Points[i] += velocity + gravityStep;
             }
 
-            double segment = restLength / last;
+            HoldToLength(restLength / last, iterations);
+            return true;
+        }
+
+        /// <summary>
+        /// Pulls each segment stretched past <paramref name="segment"/> back to it, a few sweeps
+        /// over the chain. The rope can go slack, so a shorter segment is left alone.
+        /// </summary>
+        private void HoldToLength(double segment, int iterations)
+        {
+            int last = Count - 1;
+
+            // two points are both pinned: nothing between them to hold to length
+            if (last < 2) return;
+
             double segmentSquared = segment * segment;
 
             for (int iteration = 0; iteration < iterations; iteration++)
             {
                 // alternate the sweep so neither end drags the error to the other
                 bool forward = (iteration & 1) == 0;
+                bool moved = false;
+
                 for (int k = 0; k < last; k++)
                 {
                     int i = forward ? k : last - 1 - k;
@@ -117,16 +133,13 @@ namespace GrappleHook.Core
 
                     double length = Math.Sqrt(lengthSquared);
                     Vector3D correction = d * ((length - segment) / length);
+                    moved = true;
 
-                    bool pinnedA = i == 0;
-                    bool pinnedB = i + 1 == last;
-                    if (pinnedA && pinnedB) continue;
-
-                    if (pinnedA)
+                    if (i == 0)
                     {
-                        Points[i + 1] -= correction;
+                        Points[1] -= correction;
                     }
-                    else if (pinnedB)
+                    else if (i + 1 == last)
                     {
                         Points[i] += correction;
                     }
@@ -137,9 +150,10 @@ namespace GrappleHook.Core
                         Points[i + 1] -= correction;
                     }
                 }
-            }
 
-            return true;
+                // a sweep that moved nothing leaves the same points for the next one
+                if (!moved) break;
+            }
         }
     }
 }

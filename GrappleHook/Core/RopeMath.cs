@@ -127,7 +127,8 @@ namespace GrappleHook.Core
             double a = h / (2d * xi);
             double x0 = h * 0.5d - a * Atanh(rise / ropeLength);
             double u0 = -x0 / a;
-            double sinhU0 = Math.Sinh(u0);
+            double q0 = Math.Sinh(u0);
+            double c0 = Math.Sqrt(1d + q0 * q0);
 
             for (int i = first; i < count; i++)
             {
@@ -143,11 +144,16 @@ namespace GrappleHook.Core
                     continue;
                 }
 
+                // a point s along the rope has sinh(u) = q = q0 + s/a. Both coordinates follow
+                // from q without another sinh, and keep their precision when the rope is nearly
+                // taut (u close to u0):
+                //   x = a (u - u0) = a asinh(q c0 - q0 c), with c = cosh(u) = sqrt(1 + q^2)
+                //   y = a (cosh(u) - cosh(u0)) = s (q + q0) / (c + c0)
                 double s = ropeLength * i / last;
-                double u = Asinh(s / a + sinhU0);
-                double x = a * (u - u0);
-                // cosh(u) - cosh(u0), written so it keeps its precision when the rope is nearly taut
-                double y = 2d * a * Math.Sinh((u + u0) * 0.5d) * Math.Sinh((u - u0) * 0.5d);
+                double q = q0 + s / a;
+                double c = Math.Sqrt(1d + q * q);
+                double x = a * Asinh(q * c0 - q0 * c);
+                double y = s * (q + q0) / (c + c0);
 
                 path.Points[path.Count++] = start + across * x - dn * y;
             }
@@ -172,13 +178,21 @@ namespace GrappleHook.Core
         /// <summary>
         /// True when the ray passes within <paramref name="range"/> of the rope. Used to
         /// decide whether the player is looking at the rope closely enough to grab it.
+        /// The ray's direction is a unit vector, so distances along it are metres.
         /// </summary>
         public static bool RayHitsPath(RopePath path, ref RayD ray, double range)
         {
+            Vector3D o = ray.Position;
+            double rangeSquared = range * range;
+
             for (int i = 0; i < path.SegmentCount; i++)
             {
                 Vector3D a = path.Points[i];
                 Vector3D b = path.Points[i + 1];
+
+                // the ray enters a box no nearer than the box is to its origin, so a segment
+                // further than the range away cannot be hit: most of a rope, most frames
+                if (BoxDistanceSquared(o, a, b) >= rangeSquared) continue;
 
                 BoundingBoxD bounds = new BoundingBoxD(Vector3D.Min(a, b), Vector3D.Max(a, b));
 
@@ -191,6 +205,20 @@ namespace GrappleHook.Core
             }
 
             return false;
+        }
+
+        /// <summary>Squared distance from <paramref name="p"/> to the box with corners a and b.</summary>
+        private static double BoxDistanceSquared(Vector3D p, Vector3D a, Vector3D b)
+        {
+            return AxisGapSquared(p.X, a.X, b.X) + AxisGapSquared(p.Y, a.Y, b.Y) + AxisGapSquared(p.Z, a.Z, b.Z);
+        }
+
+        private static double AxisGapSquared(double p, double a, double b)
+        {
+            double min = a < b ? a : b;
+            double max = a < b ? b : a;
+            double gap = p < min ? min - p : (p > max ? p - max : 0d);
+            return gap * gap;
         }
 
         /// <summary>
