@@ -49,7 +49,7 @@ static class Program
         if (args[0] == "materials") { Build.DumpMaterials(args[1], args.Skip(2)); return 0; }
         if (args[0] == "build") { Build.Run(args[1], args[2], args[3]); return 0; }
         if (args[0] == "probe") { Probe.Run(args[1]); return 0; }
-        if (args[0] == "obj") { Obj.Export(args[1], args[2], args.Length > 3 ? float.Parse(args[3]) : 0f); return 0; }
+        if (args[0] == "obj") { Obj.Export(args[1], args[2], args.Length > 3 ? float.Parse(args[3]) : 0f, args.Length > 4 ? args[4] : null); return 0; }
         return 2;
     }
 }
